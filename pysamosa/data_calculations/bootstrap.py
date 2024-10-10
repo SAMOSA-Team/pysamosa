@@ -400,7 +400,6 @@ def noisy_sampler(obs, n, noise_level=0.1):
         noise_level (float): The standard deviation of the Normal distribution
             from which to draw the noise.
         n (int): The number of samples to generate.
-        p (float): The percentile to compute for each sample.
 
     Returns:
         array-like: A numpy array of shape (1000,), representing the computed percentiles
@@ -474,8 +473,8 @@ def block_sampler(obs, ids, n, noise_level=0.1):
         obs (np.array): 1-D array of observation data.
         ids (np.array): 1-D array containing indices of the observation data.
         n (int): The size of the block to be sliced from the observation data.
-        p (float): The percentile of the sliced block data to be calculated and
-            added to the sample.
+        noise_level (float): The standard deviation of the Normal distribution
+            from which to draw the noise.
 
     Returns:
         np.array: A 1-Dimensional array of size 1000 containing distribution
