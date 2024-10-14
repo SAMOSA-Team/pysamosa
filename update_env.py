@@ -4,34 +4,6 @@ import yaml
 import toml
 
 
-def generate_yaml_file(env_name, output_file='environment.yml'):
-    """
-    Generate a YAML file from a Mamba environment.
-
-    :param env_name: The name of the Mamba environment to export.
-    :type env_name: str
-    :param output_file: The name of the output YAML file, defaults to 'environment.yml'
-    :type output_file: str, optional
-    :return: True if the YAML file was successfully generated, False otherwise.
-    :rtype: bool
-    """
-    # Run mamba env export command
-    result = subprocess.run(['mamba', 'env', 'export', '-n', '-p', env_name],
-                            capture_output=True, text=True, check=True)
-
-    # Parse the YAML output
-    env_yaml = yaml.safe_load(result.stdout)
-
-    # Remove the prefix key if it exists
-    env_yaml.pop('prefix', None)
-
-    # Write the modified YAML to a file
-    with open(output_file, 'w') as file:
-        yaml.dump(env_yaml, file, default_flow_style=False)
-
-    return True
-
-
 def export_and_clean_env(env_name, output_file):
     """
     Exports a specified conda environment to a YAML file and cleans the dependencies.
@@ -43,11 +15,11 @@ def export_and_clean_env(env_name, output_file):
     :return: None
     :rtype: None
     """
-    result = subprocess.run(['mamba', 'env', 'export', '-n', '-p', env_name], capture_output=True, text=True)
-    if result.returncode != 0:
-        print(f"Error exporting environment: {result.stderr}")
-        return
 
+    result = subprocess.run(['mamba', 'env', 'export', '-n', env_name],
+                            capture_output=True, text=True, check=True)
+
+    # Parse the YAML output
     env = yaml.safe_load(result.stdout)
 
     # Remove the 'prefix' key from the environment dictionary
@@ -75,7 +47,8 @@ def export_and_clean_env(env_name, output_file):
 
 def update_pyproject_toml(yaml_file, toml_file):
     """
-    Updates the dependencies in pyproject.toml based on a given YAML file.
+    Updates the dependencies in pyproject.toml based on a given YAML file,
+    while preserving other content in the TOML file.
 
     :param yaml_file: The file path of the YAML file containing environment dependencies.
     :type yaml_file: str
@@ -84,20 +57,44 @@ def update_pyproject_toml(yaml_file, toml_file):
     :return: None
     :rtype: None
     """
+
+    # Read YAML file
     with open(yaml_file, 'r') as file:
         yaml_data = yaml.safe_load(file)
 
+    # Read existing pyproject.toml
     with open(toml_file, 'r') as file:
         toml_data = toml.load(file)
 
-    toml_data['project']['dependencies'] = yaml_data['dependencies']
+    # Ensure 'project' section exists
+    if 'project' not in toml_data:
+        toml_data['project'] = {}
 
-    # Write the updated data back to the toml file
+    # Ensure to map YAML `dependencies` correctly
+    if 'dependencies' in yaml_data:
+        if not isinstance(toml_data['project'], dict):
+            toml_data['project'] = {}
+        if 'dependencies' not in toml_data['project']:
+            toml_data['project']['dependencies'] = []
+        else:
+            if not isinstance(toml_data['project']['dependencies'], list):
+                toml_data['project']['dependencies'] = []
+
+        for dep in yaml_data['dependencies']:
+            if isinstance(dep, str):
+                toml_data['project']['dependencies'].append(dep)
+            elif isinstance(dep, dict) and 'pip' in dep:
+                for pip_dep in dep['pip']:
+                    toml_data['project']['dependencies'].append(f"pip:{pip_dep}")
+    print(toml_data)
     with open(toml_file, 'w') as file:
         toml.dump(toml_data, file)
 
 
 if __name__ == "__main__":
-    env_name = "envs/samosa_phase1.yaml"  # Replace with your environment name
-    export_and_clean_env(env_name, env_name)
-    update_pyproject_toml(env_name, 'pyproject.toml')
+
+    env_name = "pysamosa"
+    yaml_name = "envs/pysamosa.yaml"
+
+    export_and_clean_env(env_name, yaml_name)
+    update_pyproject_toml(yaml_name, 'pyproject.toml')

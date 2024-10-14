@@ -3,5 +3,5 @@
   <component name="Black">
     <option name="sdkName" value="$PROJECT_DIR$/../miniforge3/envs/samosa" />
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="$PROJECT_DIR$/../miniforge3/envs/samosa" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="$PROJECT_DIR$/../miniforge3/envs/pysamosa" project-jdk-type="Python SDK" />
 </project>
