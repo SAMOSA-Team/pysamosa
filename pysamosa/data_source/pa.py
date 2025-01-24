@@ -235,6 +235,7 @@ def format_pa(in_path):
         .set_index(["position", "observation_hour_start"])
         .to_xarray()
     )
+
     ds_b = (
         dict_pa["b"]
         .reset_index()

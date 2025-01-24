@@ -235,6 +235,7 @@ def make_history(ds):
         False,
     ).to_xarray()
     ds_history = xr.merge([ds_history, ds_history_season]).set_coords("season")
+    ds_history["pa_raw_mean"] = (ds_history.a + ds_history.b) * 0.5
     return ds_history
 
 
@@ -388,30 +389,38 @@ def make_deployment(ds):
     :return ds_deployment: Deployment dataset
     :rtype: xarray.Dataset
     """
-    ds_deployment = (
-        ds.where(ds.is_collocation_site == 0)
-        .dropna(dim="position", how="all")
-        .dropna(dim="time", how="all")
+
+    ds_deployment = ds.where(ds.site != "IITD")
+
+    ds_deployment["pa_raw_mean"] = (ds_deployment.a + ds_deployment.b) * 0.5
+    ds_deployment["pa_raw_std"] = (ds_deployment.a + ds_deployment.a) * 0.5
+
+    ds_deployment = xr.merge(
+        [
+            ds_deployment.pa_raw_mean.resample(time="1h").mean(),
+            ds_deployment.pa_raw_std.resample(time="1h").std(),
+            ds_deployment.rh.resample(time="1h").mean(),
+            ds_deployment.disagreement.resample(time="1h").mean(),
+        ]
     )
+
     df_deploy = ds_deployment.to_dataframe().reset_index().drop(["position"], axis=1)
-    df_deploy.loc[:, "pa_raw"] = (df_deploy["a"] + df_deploy["b"]) * 0.5
     ds_deploy = (
         df_deploy.groupby(["site", "time"])
         .agg(
             {
-                "pa_raw": "first",
-                "a": "first",
-                "b": "first",
+                "pa_raw_mean": "first",
+                "pa_raw_std": "first",
                 "rh": "first",
                 "disagreement": "first",
-                "a_flag": "first",
-                "b_flag": "first",
-                "rh_flag": "first",
                 "sensor": "first",
             }
         )
         .to_xarray()
     )
+
+    print(ds_deploy.pa_raw_mean.shape)
+
     ds_deploy_meta = (
         ds_deployment[["site"]]
         .to_dataframe()
@@ -423,6 +432,8 @@ def make_deployment(ds):
         .to_xarray()
     )
     ds_deployment = xr.merge([ds_deploy, ds_deploy_meta])
+
+    print(ds_deployment.pa_raw_mean.shape)
 
     ds_deployment = ds_deployment.set_coords(
         [
@@ -442,25 +453,43 @@ def make_deployment(ds):
         False,
     ).to_xarray()
     ds_deployment = xr.merge([ds_deployment, ds_deployment_season]).set_coords("season")
+
+    print(ds_deployment.pa_raw_mean.shape)
+
     return ds_deployment
 
 
 def merge_history(in_path):
-    ds_pa = xr.open_dataset(os.path.join(in_path, "pa.nc"))
+    # ds_pa = xr.open_dataset(os.path.join(in_path, "pa.nc"))
+    ds_pa = xr.open_dataset(os.path.join(in_path, "pr.nc"))
     ds_history = make_history(ds_pa)
     return ds_history
 
 
 def merge_reference(in_path):
+    def dataset_exists(dataset_name):
+        return os.path.exists(os.path.join(in_path, f"{dataset_name}.nc"))
+
     ds_reference = open_and_merge(in_path, ["bam", "reg"])
-    ds_reference_rasters = open_and_merge_raster(
-        in_path, ds_reference, ["era", "tropomi", "martin", "ghsl"], keys="site"
-    )
-    return xr.merge([ds_reference, ds_reference_rasters])
+
+    datasets_to_merge = ["era", "tropomi", "martin", "ghsl"]
+
+    existing_datasets = [
+        dataset for dataset in datasets_to_merge if dataset_exists(dataset)
+    ]
+
+    if existing_datasets:
+        ds_reference_rasters = open_and_merge_raster(
+            in_path, ds_reference, existing_datasets, keys="site"
+        )
+        return xr.merge([ds_reference, ds_reference_rasters])
+    else:
+        return ds_reference
 
 
 def merge_phases(in_path, dict_phases):
-    ds_pa = xr.open_dataset(os.path.join(in_path, "pa.nc"))
+    # ds_pa = xr.open_dataset(os.path.join(in_path, "pa.nc"))
+    ds_pa = xr.open_dataset(os.path.join(in_path, "pr.nc"))
     ds_phases = make_phases(ds_pa, dict_phases)
     ds_bam = fixed_point_merge(
         ds_phases,
@@ -471,7 +500,20 @@ def merge_phases(in_path, dict_phases):
 
 
 def merge_collocation(in_path):
-    ds_pa = xr.open_dataset(os.path.join(in_path, "pa.nc"))
+    # ds_pa = xr.open_dataset(os.path.join(in_path, "pa.nc"))
+    ds_pa = xr.open_dataset(os.path.join(in_path, "pr.nc"))
+
+    ds_pa = xr.merge(
+        [
+            ds_pa.a.resample(time="1h").mean(),
+            ds_pa.b.resample(time="1h").mean(),
+            ds_pa.rh.resample(time="1h").mean(),
+            ds_pa.disagreement.resample(time="1h").mean(),
+            ds_pa.a_flag.resample(time="1h").sum(),
+            ds_pa.b_flag.resample(time="1h").sum(),
+        ]
+    )
+
     ds_collocation = make_collocation(ds_pa)
     ds_reference = open_and_merge(in_path, ["bam", "reg"])
 
@@ -492,9 +534,10 @@ def merge_deployment(in_path):
     def dataset_exists(dataset_name):
         return os.path.exists(os.path.join(in_path, f"{dataset_name}.nc"))
 
-    ds_pa = xr.open_dataset(os.path.join(in_path, "pa.nc"))
+    # ds_pa = xr.open_dataset(os.path.join(in_path, "pa.nc"))
+    ds_pa = xr.open_dataset(os.path.join(in_path, "pr.nc"))
     ds_deployment = make_deployment(ds_pa)
-    datasets_to_merge = ["era", "tropomi", "martin", "ghsl"]
+    datasets_to_merge = ["era", "tropomi", "martin", "ghsl", "rwi"]
 
     existing_datasets = [
         dataset for dataset in datasets_to_merge if dataset_exists(dataset)
