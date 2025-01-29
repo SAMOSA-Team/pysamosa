@@ -1,7 +1,7 @@
 import numpy as np
 
 
-def create_sampling_matrix(ground_ds, remote_ds, remote_df):
+def create_sampling_matrix(ground_ds, remote_ds):
     # Get ground station coordinates
     ground_lats = ground_ds.latitude.values
     ground_lons = ground_ds.longitude.values
@@ -12,7 +12,7 @@ def create_sampling_matrix(ground_ds, remote_ds, remote_df):
 
     # Initialize sampling matrix
     n_stations = len(ground_ds.site)
-    n_locations = len(remote_df)  # This matches our POD input
+    n_locations = len(lats) * len(lons)  # This matches our POD input
     phi = np.zeros((n_stations, n_locations))
 
     # For each ground station, find nearest remote sensing point

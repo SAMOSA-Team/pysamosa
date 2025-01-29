@@ -3,15 +3,15 @@ from scipy.linalg import pinv
 
 
 def compute_reprojection_mp(H_remote, W_ground, sampling_matrix):
-    # First get the typical ratio between satellite and PM2.5 at training locations
     # Apply sampling matrix
     H_sampled = sampling_matrix @ H_remote
 
-    # Incorporate unit conversion into reprojection
-    H_sampled_converted = H_sampled
+    print(H_remote.shape)
+    print(sampling_matrix.shape)
+    print(H_sampled.shape)
+    print(W_ground.shape)
 
-    # Compute C with unit-adjusted data
-    C = pinv(H_sampled_converted) @ W_ground
+    C = pinv(H_sampled) @ W_ground
 
     return C
 

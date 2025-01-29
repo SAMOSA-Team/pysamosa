@@ -24,11 +24,11 @@ class GappyPOD:
     def _array_to_dataframe(self, arr):
         return pd.DataFrame(arr, index=self.index, columns=self.columns)
 
-    def fit_transform(self, ds):
+    def fit_transform(
+        self, ds, return_reconstruction=False, value="pa_campmier_delhi_mean"
+    ):
 
-        df = ds.to_dataframe().pivot_table(
-            index="time", columns="site", values="pa_campmier_delhi_mean"
-        )
+        df = ds.to_dataframe().pivot_table(index="time", columns="site", values=value)
 
         data, mask = self._dataframe_to_array(df)
 
@@ -71,9 +71,8 @@ class GappyPOD:
         self.temporal_modes = Vt.T
 
         # Convert reconstruction back to DataFrame
-        df_reconstructed = self._array_to_dataframe(reconstruction)
-
-        return df_reconstructed
+        if return_reconstruction:
+            return self._array_to_dataframe(reconstruction)
 
     def _compute_pod(self, data):
         U, s, Vt = svd(data, full_matrices=False)
@@ -91,7 +90,7 @@ class SpatialPOD:
         self.n_modes = n_modes
         self.spatial_modes = None
         self.singular_values = None
-        self.temporal_modes = None
+        self.band_modes = None
 
     def _compute_pod(self, data):
         data = data.values
@@ -113,6 +112,4 @@ class SpatialPOD:
 
         self.spatial_modes = Vt.T
         self.singular_values = s
-        self.temporal_modes = U
-
-        return self.spatial_modes
+        self.band_modes = U

@@ -537,7 +537,7 @@ def merge_deployment(in_path):
     # ds_pa = xr.open_dataset(os.path.join(in_path, "pa.nc"))
     ds_pa = xr.open_dataset(os.path.join(in_path, "pr.nc"))
     ds_deployment = make_deployment(ds_pa)
-    datasets_to_merge = ["era", "tropomi", "martin", "ghsl", "rwi"]
+    datasets_to_merge = ["era", "tropomi", "martin", "ghsl", "rwi", "gee"]
 
     existing_datasets = [
         dataset for dataset in datasets_to_merge if dataset_exists(dataset)

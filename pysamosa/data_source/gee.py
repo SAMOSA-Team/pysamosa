@@ -54,7 +54,7 @@ def index_gee(ds, bounds=None):
     str_extract = str_match.group()
 
     # Create a Pandas datetime index.
-    idx_time = pd.DatetimeIndex([pd.to_datetime(str_extract, format="%Y-%M-%d")])
+    idx_time = pd.DatetimeIndex([pd.to_datetime(str_extract, format="%Y-%m-%d")])
 
     # Expand the dataset with the time dimension.
     ds = ds.expand_dims({"time": idx_time})

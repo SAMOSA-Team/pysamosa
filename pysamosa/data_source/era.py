@@ -203,5 +203,6 @@ def format_era(in_path, crs="EPSG:4326"):
 
     # Sort data by time
     ds_era = ds_era.sortby("time")
+    ds_era = ds_era.resample(time="1h").mean()
 
     return ds_era
