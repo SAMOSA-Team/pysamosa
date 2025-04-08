@@ -32,7 +32,7 @@ def set_phase(start, end, phase_num):
     :rtype: pandas.DataFrame
 
     """
-    index = pd.Series(pd.date_range(start, end, freq="1H"), name="time")
+    index = pd.Series(pd.date_range(start, end, freq="1h"), name="time")
     arr_phase_num = np.repeat(phase_num, len(index))
     return pd.DataFrame(arr_phase_num, index=index, columns=["collocation_phase"])
 
@@ -148,8 +148,14 @@ def fixed_point_merge(ds_points, ds_merge, tolerance=0.005, keys="site", xy=None
         df_coords_merge, df_coords_points, tolerance=tolerance
     )
 
-    ds_matched_merge = ds_merge.sel({keys: df_matched.collocation_site.values})
-    ds_matched_points = ds_points.sel({keys: df_matched.index.values})
+    if type(keys) is dict:
+        ds_matched_merge = ds_merge.sel(
+            {keys["merge"]: df_matched.collocation_site.values}
+        )
+        ds_matched_points = ds_points.sel({keys["points"]: df_matched.index.values})
+    else:
+        ds_matched_merge = ds_merge.sel({keys: df_matched.collocation_site.values})
+        ds_matched_points = ds_points.sel({keys: df_matched.index.values})
 
     return ds_matched_points, ds_matched_merge
 
@@ -277,14 +283,13 @@ def make_phases(ds, dict_phases):
             "latitude",
             "longitude",
             "settlement_type",
-            "site",
         ]
     )
     ds_phases = (
         ds_phases.to_dataframe()
         .reset_index()
         .drop(["position"], axis=1)
-        .set_index(["sensor", "time"])
+        .set_index(["site", "sensor", "time"])
         .to_xarray()
     )
     ds_phases_season = india.get_season(
@@ -393,7 +398,7 @@ def make_deployment(ds):
     ds_deployment = ds.where(ds.site != "IITD")
 
     ds_deployment["pa_raw_mean"] = (ds_deployment.a + ds_deployment.b) * 0.5
-    ds_deployment["pa_raw_std"] = (ds_deployment.a + ds_deployment.a) * 0.5
+    ds_deployment["pa_raw_std"] = (ds_deployment.a + ds_deployment.b) * 0.5
 
     ds_deployment = xr.merge(
         [
@@ -491,12 +496,14 @@ def merge_phases(in_path, dict_phases):
     # ds_pa = xr.open_dataset(os.path.join(in_path, "pa.nc"))
     ds_pa = xr.open_dataset(os.path.join(in_path, "pr.nc"))
     ds_phases = make_phases(ds_pa, dict_phases)
+    """
     ds_bam = fixed_point_merge(
         ds_phases,
         xr.open_dataset(os.path.join(in_path, "bam.nc")),
-        xy=[28.5468, 77.1906],
+        xy=[28.5468, 77.1906]
     )
-    return xr.merge([ds_phases, ds_bam])
+    """
+    return ds_phases  # xr.merge([ds_phases, ds_bam])
 
 
 def merge_collocation(in_path):

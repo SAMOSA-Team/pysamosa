@@ -34,7 +34,7 @@ class SpatialTemporalModel:
 
     def _compute_reconstruction_matrix(self):
         s = np.diag(self.gpod.singular_values)
-        return (self.spod.band_modes @ self.C @ s @ self.gpod.spatial_modes.T).T
+        return self.spod.band_modes.T @ self.C @ s @ self.gpod.spatial_modes.T
 
     def fit_transform(self, return_validation=True):
         self._compute_reprojection_matrix()

@@ -11,9 +11,11 @@ def create_sampling_matrix(ground_ds, remote_ds):
     lons = remote_ds.longitude.values
 
     # Initialize sampling matrix
+    # Creates a matrix of shape (n_locations, n_stations)
+    # Used for mapping satellite locations to ground station measurements
     n_stations = len(ground_ds.site)
     n_locations = len(lats) * len(lons)  # This matches our POD input
-    phi = np.zeros((n_stations, n_locations))
+    phi = np.zeros((n_locations, n_stations))
 
     # For each ground station, find nearest remote sensing point
     for i, (lat, lon) in enumerate(zip(ground_lats, ground_lons)):
@@ -25,7 +27,8 @@ def create_sampling_matrix(ground_ds, remote_ds):
         flat_idx = lat_idx * len(lons) + lon_idx
 
         # Set corresponding element to 1
-        phi[i, flat_idx] = 1
+        # Note: column index is now i, row index is flat_idx
+        phi[flat_idx, i] = 1
 
     return phi
 
@@ -40,8 +43,9 @@ def create_weighted_sampling_matrix(ground_ds, remote_ds, radius_km=2, sigma_km=
     n_locations = len(lats.flatten())
 
     # Initialize weighted matrix
+    # Creates a matrix of shape (n_locations, n_stations) for consistency with create_sampling_matrix
     n_stations = len(ground_ds.site)
-    weighted_phi = np.zeros((n_stations, n_locations))
+    weighted_phi = np.zeros((n_locations, n_stations))
 
     # Convert radius and sigma to degrees (approximate)
     deg_per_km = 1 / 111  # rough conversion
@@ -59,16 +63,17 @@ def create_weighted_sampling_matrix(ground_ds, remote_ds, radius_km=2, sigma_km=
         # Apply Gaussian weighting within radius
         mask = distances <= radius_deg
         if np.any(mask):  # Check if we have any points within radius
-            weighted_phi[i, mask] = np.exp(-0.5 * (distances[mask] / sigma_deg) ** 2)
+            # Use transposed indexing: weighted_phi[location, station] instead of [station, location]
+            weighted_phi[mask, i] = np.exp(-0.5 * (distances[mask] / sigma_deg) ** 2)
 
             # Normalize weights for this station if any weights exist
-            station_sum = np.sum(weighted_phi[i, :])
+            station_sum = np.sum(weighted_phi[:, i])
             if station_sum > 0:
-                weighted_phi[i, :] = weighted_phi[i, :] / station_sum
+                weighted_phi[:, i] = weighted_phi[:, i] / station_sum
             else:
                 # If no weights, use nearest point
                 nearest_idx = np.argmin(distances)
-                weighted_phi[i, nearest_idx] = 1.0
+                weighted_phi[nearest_idx, i] = 1.0
 
     # Add final check for any remaining NaN or inf
     weighted_phi = np.nan_to_num(weighted_phi, nan=0.0, posinf=0.0, neginf=0.0)
