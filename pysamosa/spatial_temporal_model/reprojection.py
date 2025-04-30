@@ -5,15 +5,9 @@ from scipy.linalg import pinv
 def compute_reprojection_mp(H_remote, W_ground, sampling_matrix):
     # Apply sampling matrix - Note: sampling_matrix should be (n_locations, n_stations)
 
-    print(H_remote.shape)
-    print(sampling_matrix.shape)
-    # print(H_sampled.shape)
-    print(W_ground.shape)
-
     # No need to transpose sampling_matrix as it's already in the correct orientation
-    H_sampled = sampling_matrix @ H_remote
-
-    C = pinv(H_sampled) @ W_ground
+    H_sampled = H_remote.T @ sampling_matrix
+    C = pinv(H_sampled).T @ W_ground
 
     return C
 

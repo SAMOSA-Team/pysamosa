@@ -33,22 +33,35 @@ class SpatialTemporalModel:
         )
 
     def _compute_reconstruction_matrix(self):
+        """
+        Compute the reconstruction matrix using the derived reprojection matrix C.
+
+        Returns:
+            numpy.ndarray: Reconstruction matrix of shape (n_times, n_locations)
+                where rows correspond to different time points and columns to different locations
+        """
         s = np.diag(self.gpod.singular_values)
-        return self.spod.band_modes.T @ self.C @ s @ self.gpod.spatial_modes.T
+
+        # Correct matrix multiplication chain with proper dimensions:
+        # self.spod.band_modes is (n_locations × r₁)
+        # self.C is (r₁ × r₂)
+        # s is (r₂ × r₂)
+        # self.gpod.spatial_modes.T is (r₂ × n_times)
+        # Result should be (n_locations × n_times)
+        return self.spod.band_modes @ self.C @ s @ self.gpod.spatial_modes.T
 
     def fit_transform(self, return_validation=True):
         self._compute_reprojection_matrix()
 
         reconstruction = self._compute_reconstruction_matrix()
 
-        df = pd.DataFrame(reconstruction)
+        df = pd.DataFrame(reconstruction.T, index=self.time_index)
 
-        df.loc[:, "time"] = self.time_index
-        df = df.set_index("time")
+        df_validate = df.loc[:, self.phi.sum(axis=1).astype(bool)].copy()
 
-        df_validate = df.loc[:, pd.DataFrame(self.phi).sum().astype(bool).values]
-
-        df = df.reset_index().melt(id_vars=["time"], var_name="location")
+        df = df.reset_index()
+        df = df.rename({"index": "time"}, axis=1)
+        df = df.melt(id_vars=["time"], var_name="location")
 
         df.loc[:, "latitude"] = self.loc_points.loc[df.location, "latitude"].values
         df.loc[:, "longitude"] = self.loc_points.loc[df.location, "longitude"].values
@@ -56,6 +69,7 @@ class SpatialTemporalModel:
         df = df.drop(["location"], axis=1)
 
         df = df.set_index(["time", "latitude", "longitude"])
+
         ds = df.to_xarray()
 
         if return_validation:
@@ -64,7 +78,7 @@ class SpatialTemporalModel:
             return ds
 
     def export_reconstruction(self, data_var_name="reconstruction"):
-        # Get reconstruction
+        # Get reconstruction matrix of shape (n_locations × n_times)
         reconstruction = self._compute_reconstruction_matrix()
 
         # Get unique lat/lon values
@@ -77,24 +91,38 @@ class SpatialTemporalModel:
         )
 
         # Fill the 3D array
-        for i, loc in enumerate(range(reconstruction.shape[1])):
+        # reconstruction has shape (n_locations × n_times)
+        # Each row represents a location, each column a time point
+        for i in range(reconstruction.shape[0]):
             lat_idx = np.where(unique_lats == self.loc_points["latitude"].iloc[i])[0][0]
             lon_idx = np.where(unique_lons == self.loc_points["longitude"].iloc[i])[0][
                 0
             ]
-            data_3d[:, lat_idx, lon_idx] = reconstruction[:, i]
+            # Transpose to get time as the first dimension
+            data_3d[:, lat_idx, lon_idx] = reconstruction[i, :]
 
         # Get sampling information for training locations
-        sampling_points = pd.DataFrame(self.phi).sum().astype(bool)
+        # Identify training locations based on the sampling matrix phi
+        # The phi matrix has shape (n_locations, n_stations)
+        # A location is a training location if it has a non-zero entry in any column
         training_mask = np.full((len(unique_lats), len(unique_lons)), False)
-        for i, is_training in enumerate(sampling_points):
-            if is_training:
-                lat_idx = np.where(unique_lats == self.loc_points["latitude"].iloc[i])[
-                    0
-                ][0]
-                lon_idx = np.where(unique_lons == self.loc_points["longitude"].iloc[i])[
-                    0
-                ][0]
+
+        # Get phi transposed to examine which columns have entries
+        phi_transposed = self.phi.T  # Now shape (n_stations, n_locations)
+
+        # For each station
+        for station_idx in range(phi_transposed.shape[0]):
+            # Find which location indices have non-zero entries for this station
+            location_indices = np.where(phi_transposed[station_idx] > 0)[0]
+
+            # Mark these locations as training points
+            for loc_idx in location_indices:
+                lat_idx = np.where(
+                    unique_lats == self.loc_points["latitude"].iloc[loc_idx]
+                )[0][0]
+                lon_idx = np.where(
+                    unique_lons == self.loc_points["longitude"].iloc[loc_idx]
+                )[0][0]
                 training_mask[lat_idx, lon_idx] = True
 
         # Create coordinates
