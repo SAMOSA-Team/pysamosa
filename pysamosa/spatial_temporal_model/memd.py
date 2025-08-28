@@ -835,3 +835,670 @@ def visualize_location_comparison(metrics, metric_name, location_names=None):
     plt.xticks(rotation=45)
     plt.tight_layout()
     plt.show()
+
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy import signal
+from scipy.interpolate import Akima1DInterpolator, interp1d
+from scipy.stats import iqr
+from typing import Optional, Tuple, List, Dict, Union
+
+
+class EnhancedMEMD:
+    """
+    Enhanced Multi-Empirical Mode Decomposition (MEMD) for multivariate signals
+    with robust handling of missing data.
+
+    Key improvements:
+    - No interpolation across gaps > gap_threshold hours
+    - Modified sifting that doesn't let NaN values drive decomposition
+    - Proper propagation of NaN through IMFs without creating artifacts
+    """
+
+    def __init__(
+        self,
+        n_directions: int = 64,
+        n_iterations: int = 40,
+        stopping_criterion: float = 0.075,
+        gap_threshold: int = 3,  # Maximum gap size (in hours) to interpolate
+        min_segment_length: int = 24,
+    ):  # Minimum continuous segment for processing
+        self.n_directions = n_directions
+        self.n_iterations = n_iterations
+        self.stopping_criterion = stopping_criterion
+        self.gap_threshold = gap_threshold
+        self.min_segment_length = min_segment_length
+        self.imfs = None
+        self.imf_energies = None
+        self.variable_names = None
+        self.time_index = None
+        self.missing_data_stats = None
+
+    def _identify_gaps(self, signal: np.ndarray) -> Dict[int, List[Tuple[int, int]]]:
+        """Identify gaps in each variable of the signal."""
+        n_samples, n_variables = signal.shape
+        gaps = {}
+
+        for v in range(n_variables):
+            var_gaps = []
+            in_gap = False
+            gap_start = 0
+
+            for i in range(n_samples):
+                if np.isnan(signal[i, v]):
+                    if not in_gap:
+                        gap_start = i
+                        in_gap = True
+                else:
+                    if in_gap:
+                        gap_length = i - gap_start
+                        var_gaps.append((gap_start, i - 1, gap_length))
+                        in_gap = False
+
+            # Handle gap at the end
+            if in_gap:
+                gap_length = n_samples - gap_start
+                var_gaps.append((gap_start, n_samples - 1, gap_length))
+
+            gaps[v] = var_gaps
+
+        return gaps
+
+    def _preprocess_gaps(self, signal: np.ndarray) -> np.ndarray:
+        """
+        Interpolate only short gaps (< gap_threshold).
+        Longer gaps remain as NaN.
+        """
+        processed = signal.copy()
+        n_samples, n_variables = signal.shape
+        gaps = self._identify_gaps(signal)
+
+        for v in range(n_variables):
+            for gap_start, gap_end, gap_length in gaps[v]:
+                if gap_length <= self.gap_threshold:
+                    # Find valid points around the gap
+                    before_idx = gap_start - 1
+                    after_idx = gap_end + 1
+
+                    if before_idx >= 0 and after_idx < n_samples:
+                        if not np.isnan(signal[before_idx, v]) and not np.isnan(
+                            signal[after_idx, v]
+                        ):
+                            # Linear interpolation for short gaps
+                            gap_indices = np.arange(gap_start, gap_end + 1)
+                            processed[gap_indices, v] = np.interp(
+                                gap_indices,
+                                [before_idx, after_idx],
+                                [signal[before_idx, v], signal[after_idx, v]],
+                            )
+
+        return processed
+
+    def _generate_direction_vectors(self, n_variables: int) -> np.ndarray:
+        """Generate uniformly distributed direction vectors on unit hypersphere."""
+        if n_variables == 2:
+            angles = np.linspace(0, 2 * np.pi, self.n_directions, endpoint=False)
+            directions = np.column_stack((np.cos(angles), np.sin(angles)))
+        else:
+            # Use Hammersley sequence for better uniformity
+            directions = np.zeros((self.n_directions, n_variables))
+
+            # First direction is standard basis vector
+            directions[0, 0] = 1
+
+            # Generate quasi-random points
+            for i in range(1, self.n_directions):
+                # Van der Corput sequence
+                v = np.random.randn(n_variables)
+                v = v / np.linalg.norm(v)
+                directions[i] = v
+
+        return directions
+
+    def _project_signal(self, signal: np.ndarray, direction: np.ndarray) -> np.ndarray:
+        """Project multivariate signal onto direction vector, handling NaN."""
+        n_samples = signal.shape[0]
+        projected = np.zeros(n_samples)
+
+        for i in range(n_samples):
+            valid_mask = ~np.isnan(signal[i, :])
+            if not np.any(valid_mask):
+                projected[i] = np.nan
+                continue
+
+            valid_signal = signal[i, valid_mask]
+            valid_direction = direction[valid_mask]
+
+            # Normalize direction for consistent projection
+            norm = np.linalg.norm(valid_direction)
+            if norm > 1e-10:
+                valid_direction = valid_direction / norm
+                projected[i] = np.sum(valid_signal * valid_direction)
+            else:
+                projected[i] = np.nan
+
+        return projected
+
+    def _find_extrema_segments(
+        self, signal_segment: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Find extrema in a continuous segment (no NaN values)."""
+        if len(signal_segment) < 3:
+            return np.array([]), np.array([])
+
+        # Use first derivative test
+        diff_signal = np.diff(signal_segment)
+
+        # Find where derivative changes sign
+        max_idx = np.where((diff_signal[:-1] > 0) & (diff_signal[1:] < 0))[0] + 1
+        min_idx = np.where((diff_signal[:-1] < 0) & (diff_signal[1:] > 0))[0] + 1
+
+        # Check endpoints
+        if signal_segment[0] > signal_segment[1]:
+            max_idx = np.insert(max_idx, 0, 0)
+        elif signal_segment[0] < signal_segment[1]:
+            min_idx = np.insert(min_idx, 0, 0)
+
+        if signal_segment[-1] > signal_segment[-2]:
+            max_idx = np.append(max_idx, len(signal_segment) - 1)
+        elif signal_segment[-1] < signal_segment[-2]:
+            min_idx = np.append(min_idx, len(signal_segment) - 1)
+
+        return max_idx, min_idx
+
+    def _find_extrema(
+        self, projected_signal: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Find extrema handling gaps properly."""
+        valid_mask = ~np.isnan(projected_signal)
+        valid_indices = np.where(valid_mask)[0]
+
+        if len(valid_indices) < 3:
+            return np.array([], dtype=int), np.array([], dtype=int)
+
+        # Identify continuous segments
+        segments = []
+        current_segment = [valid_indices[0]]
+
+        for i in range(1, len(valid_indices)):
+            if valid_indices[i] == valid_indices[i - 1] + 1:
+                current_segment.append(valid_indices[i])
+            else:
+                if len(current_segment) >= self.min_segment_length:
+                    segments.append(np.array(current_segment))
+                current_segment = [valid_indices[i]]
+
+        if len(current_segment) >= self.min_segment_length:
+            segments.append(np.array(current_segment))
+
+        # Find extrema in each segment
+        all_max_indices = []
+        all_min_indices = []
+
+        for segment in segments:
+            segment_signal = projected_signal[segment]
+            seg_max_idx, seg_min_idx = self._find_extrema_segments(segment_signal)
+
+            # Convert to original indices
+            if len(seg_max_idx) > 0:
+                all_max_indices.extend(segment[seg_max_idx])
+            if len(seg_min_idx) > 0:
+                all_min_indices.extend(segment[seg_min_idx])
+
+        return np.array(all_max_indices, dtype=int), np.array(
+            all_min_indices, dtype=int
+        )
+
+    def _interpolate_envelope_with_gaps(
+        self,
+        time_points: np.ndarray,
+        extrema_times: np.ndarray,
+        extrema_values: np.ndarray,
+        signal_times: np.ndarray,
+        signal_values: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Interpolate envelope but don't interpolate across large gaps.
+        """
+        envelope = np.full(len(time_points), np.nan)
+
+        if len(extrema_times) < 2:
+            return envelope
+
+        # Identify continuous segments in the signal
+        valid_mask = ~np.isnan(signal_values)
+        valid_indices = np.where(valid_mask)[0]
+
+        if len(valid_indices) == 0:
+            return envelope
+
+        # Process each continuous segment
+        i = 0
+        while i < len(valid_indices):
+            # Find the end of current segment
+            segment_start = valid_indices[i]
+            segment_end = segment_start
+
+            while i < len(valid_indices) - 1:
+                if valid_indices[i + 1] - valid_indices[i] > self.gap_threshold:
+                    break
+                segment_end = valid_indices[i + 1]
+                i += 1
+            i += 1
+
+            # Get extrema within this segment (with some padding)
+            segment_mask = (extrema_times >= time_points[segment_start] - 1) & (
+                extrema_times <= time_points[segment_end] + 1
+            )
+            segment_extrema_times = extrema_times[segment_mask]
+            segment_extrema_values = extrema_values[segment_mask]
+
+            if len(segment_extrema_times) >= 2:
+                # Interpolate within this segment
+                segment_time_range = time_points[segment_start : segment_end + 1]
+
+                if len(segment_extrema_times) >= 4:
+                    try:
+                        interpolator = Akima1DInterpolator(
+                            segment_extrema_times, segment_extrema_values
+                        )
+                        envelope[segment_start : segment_end + 1] = interpolator(
+                            segment_time_range
+                        )
+                    except:
+                        # Fall back to linear
+                        envelope[segment_start : segment_end + 1] = np.interp(
+                            segment_time_range,
+                            segment_extrema_times,
+                            segment_extrema_values,
+                        )
+                else:
+                    # Linear interpolation for few points
+                    envelope[segment_start : segment_end + 1] = np.interp(
+                        segment_time_range,
+                        segment_extrema_times,
+                        segment_extrema_values,
+                    )
+
+        return envelope
+
+    def _compute_envelopes(
+        self, signal: np.ndarray, time_points: np.ndarray
+    ) -> np.ndarray:
+        """Compute mean envelope with gap-aware interpolation."""
+        n_samples, n_variables = signal.shape
+        directions = self._generate_direction_vectors(n_variables)
+
+        # Initialize envelope accumulator
+        envelope_sum = np.zeros((n_samples, n_variables))
+        envelope_count = np.zeros((n_samples, n_variables))
+
+        for direction in directions:
+            # Project signal
+            projected = self._project_signal(signal, direction)
+
+            if np.all(np.isnan(projected)):
+                continue
+
+            # Find extrema
+            max_indices, min_indices = self._find_extrema(projected)
+
+            if len(max_indices) < 2 or len(min_indices) < 2:
+                continue
+
+            # Compute envelopes for each variable
+            for v in range(n_variables):
+                if np.all(np.isnan(signal[:, v])):
+                    continue
+
+                # Filter extrema where this variable has valid values
+                valid_max_idx = [
+                    idx for idx in max_indices if not np.isnan(signal[idx, v])
+                ]
+                valid_min_idx = [
+                    idx for idx in min_indices if not np.isnan(signal[idx, v])
+                ]
+
+                if len(valid_max_idx) < 2 or len(valid_min_idx) < 2:
+                    continue
+
+                # Interpolate upper envelope
+                upper_env = self._interpolate_envelope_with_gaps(
+                    time_points,
+                    time_points[valid_max_idx],
+                    signal[valid_max_idx, v],
+                    time_points,
+                    signal[:, v],
+                )
+
+                # Interpolate lower envelope
+                lower_env = self._interpolate_envelope_with_gaps(
+                    time_points,
+                    time_points[valid_min_idx],
+                    signal[valid_min_idx, v],
+                    time_points,
+                    signal[:, v],
+                )
+
+                # Compute mean where both envelopes are valid
+                valid_env_mask = ~(np.isnan(upper_env) | np.isnan(lower_env))
+                mean_env = (upper_env + lower_env) / 2
+
+                # Accumulate
+                envelope_sum[:, v][valid_env_mask] += mean_env[valid_env_mask]
+                envelope_count[:, v][valid_env_mask] += 1
+
+        # Compute average envelope
+        mean_envelope = np.zeros_like(signal)
+        for v in range(n_variables):
+            valid_mask = envelope_count[:, v] > 0
+            mean_envelope[valid_mask, v] = (
+                envelope_sum[valid_mask, v] / envelope_count[valid_mask, v]
+            )
+            # Where no envelope could be computed, use original signal
+            no_env_mask = (envelope_count[:, v] == 0) & ~np.isnan(signal[:, v])
+            mean_envelope[no_env_mask, v] = signal[no_env_mask, v]
+
+        return mean_envelope
+
+    def _check_imf(self, mode: np.ndarray, mean_envelope: np.ndarray) -> bool:
+        """Check if mode satisfies IMF criteria."""
+        epsilon = 0
+        valid_vars = 0
+
+        for v in range(mode.shape[1]):
+            valid_mask = ~(np.isnan(mode[:, v]) | np.isnan(mean_envelope[:, v]))
+
+            if not np.any(valid_mask):
+                continue
+
+            valid_mode = mode[valid_mask, v]
+            valid_envelope = mean_envelope[valid_mask, v]
+
+            if len(valid_mode) == 0:
+                continue
+
+            amplitude = np.max(np.abs(valid_mode))
+
+            if amplitude > 1e-10:
+                ratio = np.abs(valid_envelope) / amplitude
+                epsilon += np.mean(ratio)
+                valid_vars += 1
+
+        if valid_vars == 0:
+            return True
+
+        epsilon /= valid_vars
+        return epsilon < self.stopping_criterion
+
+    def _sift(
+        self, signal: np.ndarray, time_points: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Sifting process with robust missing data handling."""
+        mode = signal.copy()
+
+        for iteration in range(self.n_iterations):
+            # Compute mean envelope
+            mean_envelope = self._compute_envelopes(mode, time_points)
+
+            # Subtract mean envelope (only where both are valid)
+            h = np.full_like(mode, np.nan)
+            for v in range(mode.shape[1]):
+                valid_mask = ~(np.isnan(mode[:, v]) | np.isnan(mean_envelope[:, v]))
+                h[valid_mask, v] = mode[valid_mask, v] - mean_envelope[valid_mask, v]
+
+            # Check stopping criteria
+            if self._check_imf(h, mean_envelope):
+                return h, signal - h
+
+            mode = h
+
+        # Return after max iterations
+        return mode, signal - mode
+
+    def decompose(
+        self,
+        signal: Union[pd.DataFrame, np.ndarray],
+        max_imfs: int = 10,
+        debug: bool = False,
+    ) -> np.ndarray:
+        """
+        Decompose signal into IMFs with robust missing data handling.
+        """
+        # Handle input format
+        if isinstance(signal, pd.DataFrame):
+            self.variable_names = signal.columns.tolist()
+            self.time_index = signal.index.values
+            signal_array = signal.values
+            time_points = np.arange(len(signal))
+        else:
+            signal_array = np.asarray(signal)
+            if signal_array.ndim == 1:
+                signal_array = signal_array.reshape(-1, 1)
+            time_points = np.arange(signal_array.shape[0])
+            self.variable_names = [
+                f"Variable {i + 1}" for i in range(signal_array.shape[1])
+            ]
+            self.time_index = time_points
+
+        n_samples, n_variables = signal_array.shape
+
+        # Analyze missing data
+        self._analyze_missing_data(signal_array)
+
+        # Preprocess gaps
+        processed_signal = self._preprocess_gaps(signal_array)
+
+        if debug:
+            print(f"Signal shape: {n_samples} × {n_variables}")
+            print(f"Missing data: {np.isnan(signal_array).sum()} / {signal_array.size}")
+            print(
+                f"After preprocessing: {np.isnan(processed_signal).sum()} / {processed_signal.size}"
+            )
+
+        # Extract IMFs
+        imfs = []
+        residue = processed_signal.copy()
+
+        for i in range(max_imfs):
+            if debug:
+                print(f"\nExtracting IMF {i + 1}...")
+
+            # Check if residue has enough variation
+            valid_mask = ~np.isnan(residue)
+            if not np.any(valid_mask) or np.max(np.abs(residue[valid_mask])) < 1e-8:
+                if debug:
+                    print("Stopping: residue too small")
+                break
+
+            # Sift to get IMF
+            imf, new_residue = self._sift(residue, time_points)
+
+            # Check if sifting produced valid IMF
+            if np.all(np.isnan(imf)) or np.all(np.abs(imf[~np.isnan(imf)]) < 1e-10):
+                if debug:
+                    print("Stopping: invalid IMF")
+                break
+
+            imfs.append(imf)
+            residue = new_residue
+
+            # Check extrema in residue
+            mean_residue = np.nanmean(residue, axis=1)
+            if not np.all(np.isnan(mean_residue)):
+                max_idx, min_idx = self._find_extrema(mean_residue)
+                if len(max_idx) + len(min_idx) <= 2:
+                    if debug:
+                        print("Stopping: residue has few extrema")
+                    break
+
+        # Add residue as final IMF if significant
+        if not np.all(np.abs(residue[~np.isnan(residue)]) < 1e-8):
+            imfs.append(residue)
+
+        # Convert to array
+        self.imfs = np.array(imfs) if imfs else np.array([signal_array])
+
+        # Calculate energies
+        self._calculate_imf_energies()
+
+        if debug:
+            print(f"\nExtracted {len(self.imfs)} IMFs")
+            self.plot_imf_energies()
+
+        return self.imfs
+
+    def _analyze_missing_data(self, signal: np.ndarray) -> None:
+        """Analyze missing data patterns."""
+        n_samples, n_variables = signal.shape
+        gaps = self._identify_gaps(signal)
+
+        stats = {
+            "total_missing": np.isnan(signal).sum(),
+            "total_values": signal.size,
+            "missing_percentage": 100 * np.isnan(signal).sum() / signal.size,
+            "gaps_per_variable": {},
+            "longest_gap_per_variable": {},
+        }
+
+        for v in range(n_variables):
+            var_name = self.variable_names[v] if self.variable_names else f"Var{v}"
+            var_gaps = gaps[v]
+            stats["gaps_per_variable"][var_name] = len(var_gaps)
+
+            if var_gaps:
+                longest = max(gap[2] for gap in var_gaps)
+                stats["longest_gap_per_variable"][var_name] = longest
+            else:
+                stats["longest_gap_per_variable"][var_name] = 0
+
+        self.missing_data_stats = stats
+
+    def _calculate_imf_energies(self) -> None:
+        """Calculate energy distribution across IMFs."""
+        if self.imfs is None:
+            return
+
+        n_imfs, n_samples, n_variables = self.imfs.shape
+        energies = np.zeros((n_imfs, n_variables))
+
+        for i in range(n_imfs):
+            for v in range(n_variables):
+                valid_mask = ~np.isnan(self.imfs[i, :, v])
+                if np.any(valid_mask):
+                    energies[i, v] = np.sum(self.imfs[i, valid_mask, v] ** 2)
+
+        total_energies = np.sum(energies, axis=1)
+        total_energy = np.sum(total_energies)
+
+        if total_energy > 0:
+            percentages = 100 * total_energies / total_energy
+            cumulative = np.cumsum(percentages)
+        else:
+            percentages = np.zeros(n_imfs)
+            cumulative = np.zeros(n_imfs)
+
+        self.imf_energies = {
+            "per_variable": energies,
+            "total": total_energies,
+            "percentage": percentages,
+            "cumulative": cumulative,
+        }
+
+    def plot_imf_energies(self) -> None:
+        """Plot IMF energy distribution."""
+        if self.imf_energies is None:
+            return
+
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+
+        # Energy distribution
+        n_imfs = len(self.imf_energies["percentage"])
+        imf_labels = [f"IMF{i + 1}" for i in range(n_imfs)]
+
+        ax1.bar(imf_labels, self.imf_energies["percentage"])
+        ax1.set_title("IMF Energy Distribution")
+        ax1.set_ylabel("Energy (%)")
+        ax1.grid(True, alpha=0.3)
+
+        # Cumulative energy
+        ax2.plot(imf_labels, self.imf_energies["cumulative"], "o-")
+        ax2.set_title("Cumulative Energy")
+        ax2.set_ylabel("Cumulative Energy (%)")
+        ax2.grid(True, alpha=0.3)
+        ax2.set_ylim(0, 105)
+
+        for threshold in [80, 90, 95, 99]:
+            ax2.axhline(threshold, ls="--", alpha=0.5, color="gray")
+
+        plt.tight_layout()
+        plt.show()
+
+    def plot_imfs(self, max_imfs_to_plot: int = 6) -> None:
+        """Plot IMFs with missing data visualization."""
+        if self.imfs is None:
+            return
+
+        n_imfs = min(len(self.imfs), max_imfs_to_plot)
+        fig, axes = plt.subplots(
+            n_imfs + 1, 1, figsize=(12, 2.5 * (n_imfs + 1)), sharex=True
+        )
+
+        # Plot original signal reconstruction
+        reconstructed = np.nansum(self.imfs, axis=0)
+        for v in range(reconstructed.shape[1]):
+            var_name = self.variable_names[v] if self.variable_names else f"Var{v}"
+            axes[0].plot(
+                self.time_index, reconstructed[:, v], label=var_name, alpha=0.8
+            )
+        axes[0].set_ylabel("Original")
+        axes[0].legend()
+        axes[0].grid(True, alpha=0.3)
+
+        # Plot IMFs
+        for i in range(n_imfs):
+            for v in range(self.imfs.shape[2]):
+                var_name = self.variable_names[v] if self.variable_names else f"Var{v}"
+                axes[i + 1].plot(
+                    self.time_index, self.imfs[i, :, v], label=var_name, alpha=0.8
+                )
+            axes[i + 1].set_ylabel(f"IMF{i + 1}")
+            axes[i + 1].grid(True, alpha=0.3)
+
+            # Highlight gaps
+            for v in range(self.imfs.shape[2]):
+                gap_mask = np.isnan(self.imfs[i, :, v])
+                if np.any(gap_mask):
+                    axes[i + 1].fill_between(
+                        self.time_index,
+                        axes[i + 1].get_ylim()[0],
+                        axes[i + 1].get_ylim()[1],
+                        where=gap_mask,
+                        alpha=0.2,
+                        color="red",
+                    )
+
+        axes[-1].set_xlabel("Time")
+        plt.tight_layout()
+        plt.show()
+
+    def get_missing_data_report(self) -> str:
+        """Generate a report on missing data handling."""
+        if self.missing_data_stats is None:
+            return "No missing data analysis available."
+
+        stats = self.missing_data_stats
+        report = f"""Missing Data Report:
+- Total missing: {stats['total_missing']:,} / {stats['total_values']:,} ({stats['missing_percentage']:.2f}%)
+- Gap threshold for interpolation: {self.gap_threshold} hours
+- Minimum segment length: {self.min_segment_length} hours
+
+Gaps per variable:"""
+
+        for var, n_gaps in stats["gaps_per_variable"].items():
+            longest = stats["longest_gap_per_variable"][var]
+            report += f"\n  {var}: {n_gaps} gaps (longest: {longest} hours)"
+
+        return report

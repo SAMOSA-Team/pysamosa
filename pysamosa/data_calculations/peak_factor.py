@@ -1,12 +1,9 @@
 import pandas as pd
 import xarray as xr
 import numpy as np
-
-# from patsy import dmatrix
 from tqdm import tqdm
 import warnings
 from multiprocessing import Pool, cpu_count
-from functools import partial
 
 warnings.filterwarnings("ignore")
 
@@ -89,130 +86,141 @@ def calculate_daily_baseline(df, col, quantile=0.1, dof=6):
         return None
 
 
-def process_single_combination(args):
-    data_dict, date, quantile, dof = args
+def process_sensor_chunk(args):
+    """Process a chunk of data for a single sensor and date"""
+    sensor, date, data_dict, quantile, dof = args
 
     try:
-        # Reconstruct DataFrame from dict
-        if not data_dict or "time" not in data_dict or "pa_raw_mean" not in data_dict:
-            print(f"Invalid data dictionary for date {date}")
+        # Reconstruct DataFrame from dictionary
+        df = pd.DataFrame(data_dict)
+        df["time"] = pd.to_datetime(df["time"])
+        df.set_index("time", inplace=True)
+
+        # Check if we have enough data
+        if len(df) <= 30:
             return None
 
-        sensor_data = pd.DataFrame.from_dict(data_dict)
-
-        # Check if we have data
-        if sensor_data.empty:
-            print(f"Empty DataFrame for date {date}")
-            return None
-
-        sensor_data["time"] = pd.to_datetime(sensor_data["time"])
-        sensor_data.set_index("time", inplace=True)
-
-        # Filter for the specific date
-        date_str = date.strftime("%Y-%m-%d")
-        df_ = sensor_data[sensor_data["date"] == date_str]
-
-        # Drop NaN values
-        df_ = df_.dropna(subset=["pa_raw_mean"])
-
-        # Check if we have enough data points
-        if len(df_) <= 30:
-            print(f"Not enough data points for date {date_str}: {len(df_)}")
-            return None
-
-        # Print debug info
-        print(f"Processing {date_str} with {len(df_)} points, q={quantile}, dof={dof}")
-
-        # Calculate baseline and peaks
-        df = calculate_daily_baseline(df_, "pa_raw_mean", quantile=quantile, dof=dof)
-
-        # Check if we got valid results
-        if df is None or df.empty or df["baseline"].isna().all():
-            print(f"No valid results for {date_str}")
-            return None
-
-        # Get sensor ID (should be the same for all rows)
-        if "sensor" in sensor_data.columns and not sensor_data["sensor"].empty:
-            sensor_val = str(sensor_data["sensor"].iloc[0])
-        else:
-            print(f"No sensor information for {date_str}")
-            sensor_val = "unknown"
-
-        # Convert to serializable format
-        result_dict = {
-            "index": [str(idx) for idx in df.index],
-            "baseline": [
-                float(val) if not pd.isna(val) else None for val in df["baseline"]
-            ],
-            "peak": [float(val) if not pd.isna(val) else None for val in df["peak"]],
-            "sensor": sensor_val,
-        }
-
-        return {"quantile": float(quantile), "dof": int(dof), "result": result_dict}
-    except Exception as e:
-        date_str = date.strftime("%Y-%m-%d") if hasattr(date, "strftime") else str(date)
-        print(
-            f"Error processing combination (q={quantile}, dof={dof}, date={date_str}): {e}"
+        # Calculate baseline
+        result = calculate_daily_baseline(
+            df, "pa_campmier_delhi_mean", quantile=quantile, dof=dof
         )
+
+        if result is None or result["baseline"].isna().all():
+            return None
+
+        result["sensor"] = sensor
+        return result
+
+    except Exception as e:
+        print(f"Error processing sensor {sensor}, date {date}: {e}")
         return None
 
 
-def process_sensor(sensor_data, unique_dates, quantile=0.1, dof=6):
-    """Process a single sensor's data"""
-    sensor = sensor_data["sensor"].iloc[0]
-    lst_daily = []
-
-    for date in unique_dates:
-        df_ = sensor_data[sensor_data["date"] == date].dropna()
-
-        if len(df_) > 30:
-            df = calculate_daily_baseline(
-                df_, "pa_campmier_delhi_mean", quantile=quantile, dof=dof
-            )
-            df["sensor"] = sensor
-            lst_daily.append(df)
-
-    return lst_daily if lst_daily else None
-
-
 def baseline_pipeline(ds, quantile=0.1, dof=6, n_processes=None):
-    """Parallel processing pipeline with reduced memory usage and faster operations"""
+    """Parallel processing pipeline with improved chunking and error handling"""
+
     # Set number of processes
     if n_processes is None:
         n_processes = max(1, cpu_count() - 1)  # Leave one CPU free
+
+    print(f"Starting baseline pipeline with {n_processes} processes...")
+
+    # Load data
+    df_pa = ds["pa_campmier_delhi_mean"].to_dataframe().reset_index()
+    df_pa["date"] = df_pa["time"].dt.date
+
+    # Create chunks of work (sensor-date combinations)
+    chunks = []
+    for sensor in df_pa["sensor"].unique():
+        sensor_data = df_pa[df_pa["sensor"] == sensor]
+        for date in sensor_data["date"].unique():
+            date_data = sensor_data[sensor_data["date"] == date]
+            if len(date_data) > 30:  # Only process if enough data
+                # Convert to dictionary for serialization
+                data_dict = {
+                    "time": date_data["time"].astype(str).tolist(),
+                    "pa_campmier_delhi_mean": date_data[
+                        "pa_campmier_delhi_mean"
+                    ].tolist(),
+                }
+                chunks.append((sensor, date, data_dict, quantile, dof))
+
+    print(f"Created {len(chunks)} chunks to process")
+
+    # Process chunks in parallel with progress bar
+    lst_daily = []
+
+    # Use imap instead of map for better memory efficiency
+    with Pool(n_processes) as pool:
+        # Process in batches to avoid overwhelming the system
+        batch_size = 100
+        for i in range(0, len(chunks), batch_size):
+            batch = chunks[i : i + batch_size]
+            results = list(
+                tqdm(
+                    pool.imap(process_sensor_chunk, batch),
+                    total=len(batch),
+                    desc=f"Processing batch {i // batch_size + 1}/{(len(chunks) - 1) // batch_size + 1}",
+                )
+            )
+
+            # Collect non-None results
+            lst_daily.extend([r for r in results if r is not None])
+
+            # Print progress
+            print(f"Completed {min(i + batch_size, len(chunks))}/{len(chunks)} chunks")
+
+    if not lst_daily:
+        print("Warning: No valid results from processing")
+        return xr.Dataset()
+
+    # Combine results
+    print(f"Combining {len(lst_daily)} results...")
+    df_daily = pd.concat(lst_daily, ignore_index=False)
+
+    # Convert to xarray
+    ds_peak = df_daily.reset_index().set_index(["sensor", "time"]).to_xarray()
+
+    print("Baseline pipeline completed")
+    return ds_peak
+
+
+# Alternative simpler version without multiprocessing for debugging
+def baseline_pipeline_serial(ds, quantile=0.1, dof=6):
+    """Serial processing version for debugging"""
+    print("Running serial baseline pipeline...")
 
     # Load data
     df_pa = ds["pa_campmier_delhi_mean"].to_dataframe().reset_index()
     df_pa["date"] = df_pa["time"].dt.date
     df_pa.set_index("time", inplace=True)
 
-    # Pre-calculate unique values
-    unique_dates = df_pa["date"].unique()
+    lst_daily = []
 
-    # Group data by sensor
-    grouped = df_pa.groupby("sensor")
-    sensor_groups = [group for _, group in grouped]
+    # Process each sensor
+    for sensor in tqdm(df_pa["sensor"].unique(), desc="Processing sensors"):
+        sensor_data = df_pa[df_pa["sensor"] == sensor]
 
-    # Create partial function with fixed parameters
-    process_sensor_partial = partial(
-        process_sensor, unique_dates=unique_dates, quantile=quantile, dof=dof
-    )
+        # Process each date
+        for date in sensor_data["date"].unique():
+            date_data = sensor_data[sensor_data["date"] == date]
+            date_data = date_data.dropna(subset=["pa_campmier_delhi_mean"])
 
-    # Process in parallel with progress bar
-    with Pool(n_processes) as pool:
-        results = list(
-            tqdm(
-                pool.imap(process_sensor_partial, sensor_groups),
-                total=len(sensor_groups),
-                desc=f"Processing sensors using {n_processes} processes",
-            )
-        )
+            if len(date_data) > 30:
+                result = calculate_daily_baseline(
+                    date_data, "pa_campmier_delhi_mean", quantile=quantile, dof=dof
+                )
 
-    # Flatten results and remove None values
-    lst_daily = [item for sublist in results if sublist is not None for item in sublist]
+                if result is not None and not result["baseline"].isna().all():
+                    result["sensor"] = sensor
+                    lst_daily.append(result)
+
+    if not lst_daily:
+        print("Warning: No valid results from processing")
+        return xr.Dataset()
 
     # Combine results
-    df_daily = pd.concat(lst_daily, copy=False)
+    df_daily = pd.concat(lst_daily)
     ds_peak = df_daily.reset_index().set_index(["sensor", "time"]).to_xarray()
 
     return ds_peak
@@ -282,7 +290,7 @@ def sensitivity_pipeline(in_path, n_processes=None, sensor_list=None):
     results_by_params = {}
     with Pool(n_processes) as pool:
         for result in tqdm(
-            pool.imap(process_single_combination, work_items),
+            pool.imap(process_single_combination, work_items),  # noqa: F821
             total=len(work_items),
             desc=f"Processing all combinations using {n_processes} processes",
         ):

@@ -8,6 +8,7 @@ from the PurpleAir platform.
 # Import Packages
 import os
 import glob
+import gc
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -36,7 +37,6 @@ def read_pr(file):
 
 
 def index_pr(in_path):
-
     lst_folders = [
         f for f in os.listdir(in_path) if os.path.isdir(os.path.join(in_path, f))
     ]
@@ -46,26 +46,90 @@ def index_pr(in_path):
     ]
     lst_files = [item for sublist in lst_files for item in sublist]
 
-    lst_files = lst_files
+    # Use dictionaries to accumulate data by sensor
+    sensor_data_a = {}
+    sensor_data_b = {}
+    sensor_data_rh = {}
 
-    lst_dict_pa = [read_pr(i) for i in lst_files]
+    # Process files one at a time
+    for i, file in enumerate(lst_files):
+        if i % 10 == 0:
+            print(f"Processing file {i + 1}/{len(lst_files)}")
 
-    df = pd.concat(lst_dict_pa)
+        # Read single file
+        df_single = read_pr(file)
+        sensor_idx = df_single["purpleair_sensor_index"].iloc[0]
 
-    df_a = df.pivot_table(
-        index="time", columns="purpleair_sensor_index", values="a", aggfunc="mean"
-    )
-    df_b = df.pivot_table(
-        index="time", columns="purpleair_sensor_index", values="b", aggfunc="mean"
-    )
-    df_rh = df.pivot_table(
-        index="time", columns="purpleair_sensor_index", values="rh", aggfunc="mean"
-    )
+        # Accumulate data for this sensor
+        if sensor_idx not in sensor_data_a:
+            sensor_data_a[sensor_idx] = []
+            sensor_data_b[sensor_idx] = []
+            sensor_data_rh[sensor_idx] = []
+
+        sensor_data_a[sensor_idx].append(df_single["a"])
+        sensor_data_b[sensor_idx].append(df_single["b"])
+        sensor_data_rh[sensor_idx].append(df_single["rh"])
+
+        # Clear temporary variable
+        del df_single
+
+    # Now create the final DataFrames by concatenating time chunks for each sensor
+    df_a = pd.DataFrame()
+    df_b = pd.DataFrame()
+    df_rh = pd.DataFrame()
+
+    for sensor_idx in sensor_data_a.keys():
+        # Concatenate all time chunks for this sensor
+        sensor_a_combined = pd.concat(sensor_data_a[sensor_idx], axis=0).sort_index()
+        sensor_b_combined = pd.concat(sensor_data_b[sensor_idx], axis=0).sort_index()
+        sensor_rh_combined = pd.concat(sensor_data_rh[sensor_idx], axis=0).sort_index()
+
+        # Remove any duplicate timestamps (in case of overlaps)
+        sensor_a_combined = sensor_a_combined[
+            ~sensor_a_combined.index.duplicated(keep="first")
+        ]
+        sensor_b_combined = sensor_b_combined[
+            ~sensor_b_combined.index.duplicated(keep="first")
+        ]
+        sensor_rh_combined = sensor_rh_combined[
+            ~sensor_rh_combined.index.duplicated(keep="first")
+        ]
+
+        # Convert to DataFrame with sensor_idx as column name
+        temp_a = pd.DataFrame({sensor_idx: sensor_a_combined})
+        temp_b = pd.DataFrame({sensor_idx: sensor_b_combined})
+        temp_rh = pd.DataFrame({sensor_idx: sensor_rh_combined})
+
+        # Now join (this works because each sensor is a different column)
+        if df_a.empty:
+            df_a = temp_a
+            df_b = temp_b
+            df_rh = temp_rh
+        else:
+            df_a = df_a.join(temp_a, how="outer")
+            df_b = df_b.join(temp_b, how="outer")
+            df_rh = df_rh.join(temp_rh, how="outer")
+
+    # Clear the dictionaries
+    del sensor_data_a, sensor_data_b, sensor_data_rh
+
+    print("Finalizing time index...")
+
+    # Ensure index name is 'time' and remove timezone
+    df_a.index.name = "time"
+    df_b.index.name = "time"
+    df_rh.index.name = "time"
 
     df_a.index = df_a.index.tz_localize(None)
     df_b.index = df_b.index.tz_localize(None)
     df_rh.index = df_rh.index.tz_localize(None)
 
+    # Final sort by time index
+    df_a = df_a.sort_index()
+    df_b = df_b.sort_index()
+    df_rh = df_rh.sort_index()
+
+    print("exporting dict")
     dict_pa = {
         "a": df_a,
         "b": df_b,
@@ -121,7 +185,7 @@ def index_meta(in_path):
 
 
 def format_pr(in_path):
-    """Format PurpleAir data with vectorized operations"""
+    """Format PurpleAir data without pre-allocating massive arrays"""
     df_meta = index_meta(in_path)
     dict_pa = index_pr(in_path)
 
@@ -138,29 +202,71 @@ def format_pr(in_path):
             }
         )
 
-    # Process measurements
+    # Get dimensions
+    positions = sorted(df_meta["position"].unique())
+    time_index = dict_pa["a"].index  # All three DataFrames share the same time index
+
+    # Process measurements - build sparse then densify only what's needed
     datasets = []
+
     for var_name in ["a", "b", "rh"]:
+        print(f"Processing {var_name}...")
         df = dict_pa[var_name]
-        positions = sorted(df_meta["position"].unique())
-        values = np.full((len(df), len(positions)), np.nan)
+
+        # Use a dictionary to store only non-NaN values
+        sparse_data = {}
 
         for sensor_idx in df.columns:
             if sensor_idx in sensor_to_pos:
+                sensor_col = df[sensor_idx]
+                # Skip if entire column is NaN
+                if sensor_col.isna().all():
+                    continue
+
                 for period in sensor_to_pos[sensor_idx]:
                     mask = (df.index >= period["start"]) & (df.index <= period["end"])
-                    pos_idx = positions.index(period["position"])
-                    values[mask, pos_idx] = df.loc[mask, sensor_idx]
+                    if not mask.any():
+                        continue
 
+                    pos_idx = positions.index(period["position"])
+
+                    # Store only non-NaN values
+                    valid_data = sensor_col[mask].dropna()
+                    for time_val, data_val in valid_data.items():
+                        time_idx = time_index.get_loc(time_val)
+                        sparse_data[(time_idx, pos_idx)] = data_val
+
+        # Now create the array more efficiently
+        print(f"Creating array for {var_name}...")
+        values = np.full(
+            (len(time_index), len(positions)), np.nan, dtype=np.float32
+        )  # Use float32 to save memory
+
+        # Fill only the non-NaN values
+        for (t_idx, p_idx), val in sparse_data.items():
+            values[t_idx, p_idx] = val
+
+        # Create dataset and immediately clear the array from memory
         datasets.append(
             xr.Dataset(
                 data_vars={var_name: (("time", "position"), values)},
-                coords={"time": df.index, "position": positions},
+                coords={"time": time_index, "position": positions},
             )
         )
 
+        # Clear memory immediately
+        del values, sparse_data, df
+        gc.collect()
+
     # Merge measurements and filter to valid positions
+    print("Merging datasets...")
     ds = xr.merge(datasets)
+
+    # Clear the datasets list
+    del datasets
+    gc.collect()
+
+    # Filter to positions that actually have data
     has_data = ~np.isnan(ds.a.values).all(axis=0)
     valid_positions = ds.position.values[has_data]
     ds = ds.sel(position=valid_positions)
@@ -200,6 +306,7 @@ def format_pr(in_path):
     ds["latitude"].attrs["units"] = "degrees_north"
     ds["longitude"].attrs["units"] = "degrees_east"
 
+    # Calculate disagreement
     ds["disagreement"] = np.abs((2 * (ds["a"] - ds["b"])) / (ds["a"] + ds["b"])) * 100
 
     ds["disagreement"] = ds["disagreement"].assign_attrs(
