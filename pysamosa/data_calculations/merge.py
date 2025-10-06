@@ -1,6 +1,6 @@
 """
 Merge
-Last Updated: June 18, 2024
+Last Updated: Aug 28, 2025
 This script supplies the basic functions for merging
 xarray timeseries from both raster and point
 geometries.
