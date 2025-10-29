@@ -1,6 +1,6 @@
 """
 PurpleAir
-Last Updated: December 5, 2024
+Last Updated: October 29, 2025
 This script formats the PurpleAir data downloaded
 from the PurpleAir platform.
 @author: markjcampmier
@@ -224,14 +224,11 @@ def format_pr(in_path):
                     continue
 
                 for period in sensor_to_pos[sensor_idx]:
-                    mask = (df.index >= period["start"]) & (df.index <= period["end"])
-                    if not mask.any():
-                        continue
 
                     pos_idx = positions.index(period["position"])
 
                     # Store only non-NaN values
-                    valid_data = sensor_col[mask].dropna()
+                    valid_data = sensor_col.dropna()  # [mask].dropna()
                     for time_val, data_val in valid_data.items():
                         time_idx = time_index.get_loc(time_val)
                         sparse_data[(time_idx, pos_idx)] = data_val

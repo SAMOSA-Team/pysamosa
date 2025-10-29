@@ -36,6 +36,14 @@ def index_martin(ds, bounds=None):
     ds = ds.rio.set_spatial_dims(x_dim="x", y_dim="y")
     ds = ds.rio.write_crs("EPSG:4326")
 
+    # Clip BEFORE reprojection to reduce memory
+    ds = ds.rio.clip_box(
+        minx=bounds["minx"] - 0.5,
+        miny=bounds["miny"] - 0.5,
+        maxx=bounds["maxx"] + 0.5,
+        maxy=bounds["maxy"] + 0.5,
+    )
+
     ds = ds.rio.reproject(ds.rio.crs, resolution=0.01, resampling=Resampling.bilinear)
 
     ds = ds.rio.clip_box(
@@ -71,21 +79,33 @@ def index_martin(ds, bounds=None):
     return ds
 
 
-def format_martin(in_path):
+def format_martin(in_path, batch_size=5):
     """
-    Formats Martin data by indexing and clipping.
+    Formats Martin data by indexing and clipping in batches to manage memory.
 
     :param in_path: The path to the directory containing the Martin data files.
     :type in_path: str
+    :param batch_size: Number of files to process at once (default 5 for 8GB RAM).
+    :type batch_size: int
     :returns ds_martin: A xarray.Dataset containing Martin data.
     :rtype ds_martin: xarray.Dataset
     """
-    ds_martin = xr.open_mfdataset(
-        glob.glob(os.path.join(in_path, "*.nc")),
-        preprocess=index_martin,
-        combine="by_coords",
-        parallel=True,
-    )
+    files = sorted(glob.glob(os.path.join(in_path, "*.nc")))
+    datasets = []
+
+    for i in range(0, len(files), batch_size):
+        batch = files[i : i + batch_size]
+        ds_batch = xr.open_mfdataset(
+            batch,
+            preprocess=index_martin,
+            combine="by_coords",
+            parallel=False,
+            chunks={"x": 300, "y": 300},
+        )
+        datasets.append(ds_batch.load())
+
+    ds_martin = xr.concat(datasets, dim="time")
     ds_martin = ds_martin.rename({"x": "longitude", "y": "latitude"})
     ds_martin = ds_martin.sortby("time")
+
     return ds_martin
