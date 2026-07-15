@@ -1,11 +1,5 @@
-""""
-Martin
-Last Updated: Oct 13, 2025
-This script formats and QA's the WUSTL Randall Martin
-AOD-PM inversion dataset.
-@author: markjcampmier
-"""
-# Import Packages
+"""WUSTL Randall Martin AOD-PM inversion dataset formatter."""
+
 import os
 import glob
 import numpy as np
@@ -14,50 +8,41 @@ import xarray as xr
 from rasterio.enums import Resampling
 
 
-def index_martin(ds, bounds=None):
-    """
-    Indexes Randall Martin AOD-PM inversion data by date and time, and rounds the coordinates to 3 and 2 decimal
-    places, respectively.
+def _index_martin(ds: xr.Dataset, bounds: dict | None = None) -> xr.Dataset:
+    """Reproject, clip, and add a time dimension to a single Martin dataset tile.
 
-    :param ds: A xarray.Dataset containing Martin data.
-    :type ds: xarray.Dataset
-    :param bounds: Bounding box coordinates (minx, miny, maxx, maxy).
-    :type bounds: dict
-    :returns ds: An xarray.Dataset with indexed Martin data.
-    :rtype: xarray.Dataset
-    """
+    Args:
+        ds: xarray Dataset for one Martin AOD-PM file.
+        bounds: Bounding box dict with keys minx, miny, maxx, maxy.
 
+    Returns:
+        Indexed Martin dataset with a time dimension.
+    """
     if bounds is None:
         bounds = {"minx": 64.28, "miny": 1.30, "maxx": 97.24, "maxy": 37.63}
 
     ds = ds.set_coords(["lat", "lon"])
     ds = ds.rename({"lon": "x", "lat": "y"})
-
     ds = ds.rio.set_spatial_dims(x_dim="x", y_dim="y")
     ds = ds.rio.write_crs("EPSG:4326")
 
-    # Clip BEFORE reprojection to reduce memory
+    # Clip before reprojection to reduce memory
     ds = ds.rio.clip_box(
         minx=bounds["minx"] - 0.5,
         miny=bounds["miny"] - 0.5,
         maxx=bounds["maxx"] + 0.5,
         maxy=bounds["maxy"] + 0.5,
     )
-
     ds = ds.rio.reproject(ds.rio.crs, resolution=0.01, resampling=Resampling.bilinear)
-
     ds = ds.rio.clip_box(
         minx=bounds["minx"],
         miny=bounds["miny"],
         maxx=bounds["maxx"],
         maxy=bounds["maxy"],
     )
-
     ds = ds.assign_coords({"x": ds.x.round(2), "y": ds.y.round(2)})
-
     ds = ds.rename_vars({"PM25": "pm25_cnn"})
 
-    # Extract the date and time from the filename.
     time = pd.Timestamp(
         year=int(ds.attrs["TIMECOVERAGE"][:4]),
         month=int(ds.attrs["TIMECOVERAGE"][4:6]),
@@ -66,12 +51,7 @@ def index_martin(ds, bounds=None):
         minute=0,
         second=0,
     )
-
-    # Create a Pandas datetime index.
-    idx_time = pd.DatetimeIndex([time])
-
-    # Expand the dataset with the time dimension.
-    ds = ds.expand_dims({"time": idx_time})
+    ds = ds.expand_dims({"time": pd.DatetimeIndex([time])})
 
     del ds["pm25_cnn"].attrs["_FillValue"]
     ds.pm25_cnn.encoding["_FillValue"] = np.nan
@@ -79,16 +59,15 @@ def index_martin(ds, bounds=None):
     return ds
 
 
-def format_martin(in_path, batch_size=5):
-    """
-    Formats Martin data by indexing and clipping in batches to manage memory.
+def format_martin(in_path: str, batch_size: int = 5) -> xr.Dataset:
+    """Format Martin AOD-PM files in batches to manage memory.
 
-    :param in_path: The path to the directory containing the Martin data files.
-    :type in_path: str
-    :param batch_size: Number of files to process at once (default 5 for 8GB RAM).
-    :type batch_size: int
-    :returns ds_martin: A xarray.Dataset containing Martin data.
-    :rtype ds_martin: xarray.Dataset
+    Args:
+        in_path: Path to the directory containing Martin NetCDF files.
+        batch_size: Number of files to process per batch.
+
+    Returns:
+        Concatenated Martin dataset.
     """
     files = sorted(glob.glob(os.path.join(in_path, "*.nc")))
     datasets = []
@@ -97,7 +76,7 @@ def format_martin(in_path, batch_size=5):
         batch = files[i : i + batch_size]
         ds_batch = xr.open_mfdataset(
             batch,
-            preprocess=index_martin,
+            preprocess=_index_martin,
             combine="by_coords",
             parallel=False,
             chunks={"x": 300, "y": 300},

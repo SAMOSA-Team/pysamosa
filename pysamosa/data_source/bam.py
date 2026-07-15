@@ -1,10 +1,5 @@
-"""
-MetOne BAM-1022 Format and Export
-Last Updated: June 19, 2024
-This script formats MetOne BAM-1022 files (.csv files).
-@author: markjcampmier
-"""
-# Import Packages
+"""MetOne BAM-1022 format and export."""
+
 import os
 import threading
 import numpy as np
@@ -12,48 +7,40 @@ import pandas as pd
 import xarray as xr
 
 
-# Define Functions
+def _check_bam(bam_path: str) -> list[str]:
+    """Check BAM files for 'Data Report' header and return a list of valid file paths.
 
+    Args:
+        bam_path: Path to the BAM data directory.
 
-def check_bam(bam_path):
-    """
-    Checks BAM files for 'Data Report' header and returns a list of valid files.
-
-    :param bam_path: Path to the BAM data directory.
-    :type bam_path: str
-    :returns: A list of valid BAM file paths.
-    :rtype: list
+    Returns:
+        Valid BAM file paths.
     """
     csv_files, bam_files = [], []
     for root, _, files in os.walk(bam_path):
         for filename in files:
-            if (filename.endswith(".csv")) | (filename.endswith(".CSV")):
-                filepath = os.path.join(root, filename)
-                csv_files.append(filepath)
+            if filename.endswith(".csv") or filename.endswith(".CSV"):
+                csv_files.append(os.path.join(root, filename))
     for csv_file in csv_files:
         with open(csv_file, "rb") as csv:
-            header = csv.read(4096)  # Read 4096 bytes (approximately 5 lines)
+            header = csv.read(4096)
             header_lines = header.decode("utf-8").splitlines()[:5]
             if "Data Report" in header_lines:
                 bam_files.append(csv_file)
     return bam_files
 
 
-def read_bam(files):
+def _read_bam(bam_path: str) -> tuple[pd.DataFrame, str]:
+    """Read BAM files from a directory into a DataFrame.
+
+    Args:
+        bam_path: Path to a single BAM station directory.
+
+    Returns:
+        Tuple of the hourly DataFrame and the station name.
     """
-    Reads BAM files into a Pandas DataFrame.
-
-    :param files: A list of BAM file paths or a single BAM file path.
-    :type files: list
-    :return: A Pandas DataFrame containing all BAM file paths.
-    """
-    # skip rows are set based on header content,
-    # parse_dates to read as pd.Timestamp, set column 0 as datetimeindex
-
-    bam_name = os.path.basename(files)
-
-    files = check_bam(files)
-
+    bam_name = os.path.basename(bam_path)
+    files = _check_bam(bam_path)
     df_bam = pd.concat(
         [
             pd.read_csv(
@@ -69,50 +56,42 @@ def read_bam(files):
     df_bam = df_bam.resample("1h").aggregate({"ConcHR(ug/m3)": "mean", "Status": "sum"})
     df_bam.index = df_bam.index - pd.Timedelta("1h")
     df_bam.loc[:, "bam_name"] = bam_name
-    df_bam = df_bam.reset_index()
-    df_bam = df_bam.set_index(["Time", "bam_name"])
+    df_bam = df_bam.reset_index().set_index(["Time", "bam_name"])
     return df_bam, bam_name
 
 
-def read_meta(in_path):
-    """
-    Takes the data path, reads the metadata, and converts to xarray.DataArray.
+def _read_meta(in_path: str) -> xr.Dataset:
+    """Read BAM metadata CSV and return as an xarray Dataset.
 
-    :param in_path: Path to the BAM data directory.
-    :type in_path: str
-    :returns: A xarray.DataArray containing the metadata.
-    :rtype: xarray.DataArray
+    Args:
+        in_path: Path to the BAM data directory containing bam_meta.csv.
+
+    Returns:
+        Metadata dataset.
     """
     df_meta = pd.read_csv(os.path.join(in_path, "bam_meta.csv")).set_index("sensor")
-    ds_meta = df_meta.to_xarray()
-    return ds_meta
+    return df_meta.to_xarray()
 
 
-def index_bam(bam_path, ds_list):
+def _index_bam(bam_path: str, ds_list: list) -> None:
+    """Read and append a single BAM station dataset to ds_list (thread target).
+
+    Args:
+        bam_path: Path to a single BAM station directory.
+        ds_list: Shared list accumulating per-station datasets.
     """
-    Exports a QA'd BAM DataFrame to a Feather file.
-
-    :param bam_path: Path to bam files
-    :type bam_path: str
-    :param ds_list: Container for parallel processing
-    :type ds_list: list
-    :return: None
-    """
-
-    df_bam, bam_name = read_bam(bam_path)
-
-    ds_bam = df_bam.to_xarray()
-    ds_list.append(ds_bam)
-    return None
+    df_bam, _ = _read_bam(bam_path)
+    ds_list.append(df_bam.to_xarray())
 
 
-def format_bam(in_path):
-    """
-    Formats BAM files into a nc file containing munged PM2.5 data.
+def format_bam(in_path: str) -> xr.Dataset:
+    """Format BAM files into a munged PM2.5 xarray Dataset.
 
-    :param in_path: A list of BAM file paths or a single BAM file path.
-    :type in_path: list or str
-    :return: None
+    Args:
+        in_path: Path to the BAM data directory.
+
+    Returns:
+        Merged, QA-ready BAM dataset.
     """
     threads, ds_list = [], []
     bam_paths = [
@@ -121,19 +100,17 @@ def format_bam(in_path):
         if os.path.isdir(os.path.join(in_path, f))
     ]
 
-    ds_meta = read_meta(in_path)
+    ds_meta = _read_meta(in_path)
 
     for bam_path in bam_paths:
-        thread = threading.Thread(target=index_bam, args=(bam_path, ds_list))
+        thread = threading.Thread(target=_index_bam, args=(bam_path, ds_list))
         threads.append(thread)
         thread.start()
 
-    # Wait for all threads to finish processing
     for thread in threads:
         thread.join()
 
     ds_bams = xr.merge(ds_list)
-
     ds_bams = ds_bams.rename({"bam_name": "sensor", "Time": "time"})
     ds_bams = xr.merge([ds_bams, ds_meta])
     ds_bams = (
@@ -167,13 +144,12 @@ def format_bam(in_path):
     ds_bams["status"] = ds_bams["status"].assign_attrs(
         long_name="Status", description="BAM reported bit-masked status flags."
     )
-
-    ds_bams["latitude"].attrs["units"] = "degrees_north"
-    ds_bams["latitude"].attrs["long_name"] = "Latitude"
-
-    ds_bams["longitude"].attrs["units"] = "degrees_east"
-    ds_bams["longitude"].attrs["long_name"] = "Longitude"
-
+    ds_bams["latitude"].attrs.update(
+        {"units": "degrees_north", "long_name": "Latitude"}
+    )
+    ds_bams["longitude"].attrs.update(
+        {"units": "degrees_east", "long_name": "Longitude"}
+    )
     ds_bams.attrs["history"] = "munged"
 
     return ds_bams

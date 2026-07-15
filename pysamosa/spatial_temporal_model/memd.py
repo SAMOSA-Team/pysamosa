@@ -1,12 +1,5 @@
-# flake8: noqa
-"""
-MEMD Object and Functions
-Last Updated: April 30, 2025
-This script contains the Multivariate Empirical Mode Decomposition (MEMD)
-class, and associated functions.
-@author: markjcampmier
-"""
-# Import Packages
+"""Multivariate Empirical Mode Decomposition (MEMD) class and associated functions."""
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -14,8 +7,7 @@ import matplotlib.pyplot as plt
 from scipy import signal
 from scipy.interpolate import Akima1DInterpolator
 from scipy.stats import iqr
-
-# Define MEMD Class
+from typing import Dict, List, Tuple, Union
 
 
 class MEMD:
@@ -207,7 +199,7 @@ class MEMD:
                                 signal[valid_max_indices, v],
                             )
                             max_env[:, v] = max_interpolator(time_points)
-                        except:
+                        except Exception:
                             # Fall back to linear interpolation if Akima fails
                             max_env[:, v] = np.interp(
                                 time_points,
@@ -230,7 +222,7 @@ class MEMD:
                                 signal[valid_min_indices, v],
                             )
                             min_env[:, v] = min_interpolator(time_points)
-                        except:
+                        except Exception:
                             # Fall back to linear interpolation if Akima fails
                             min_env[:, v] = np.interp(
                                 time_points,
@@ -456,13 +448,13 @@ class MEMD:
             non_nan_mask = ~np.isnan(residue)
             if not np.any(non_nan_mask):
                 if debug:
-                    print(f"Stopping: Residue contains only NaN values")
+                    print("Stopping: Residue contains only NaN values")
                 break
 
             # Check if residue amplitude is very small
             if np.max(np.abs(residue[non_nan_mask])) < 1e-8:
                 if debug:
-                    print(f"Stopping: Residue amplitude too small (<1e-8)")
+                    print("Stopping: Residue amplitude too small (<1e-8)")
                 break
 
             # Extract an IMF
@@ -490,7 +482,7 @@ class MEMD:
             # If all projection values are NaN, break
             if np.all(np.isnan(proj_residue)):
                 if debug:
-                    print(f"Stopping: Projected residue contains only NaN values")
+                    print("Stopping: Projected residue contains only NaN values")
                 break
 
             # Find extrema in projection
@@ -837,15 +829,6 @@ def visualize_location_comparison(metrics, metric_name, location_names=None):
     plt.show()
 
 
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from scipy import signal
-from scipy.interpolate import Akima1DInterpolator, interp1d
-from scipy.stats import iqr
-from typing import Optional, Tuple, List, Dict, Union
-
-
 class EnhancedMEMD:
     """
     Enhanced Multi-Empirical Mode Decomposition (MEMD) for multivariate signals
@@ -1107,7 +1090,7 @@ class EnhancedMEMD:
                         envelope[segment_start : segment_end + 1] = interpolator(
                             segment_time_range
                         )
-                    except:
+                    except Exception:
                         # Fall back to linear
                         envelope[segment_start : segment_end + 1] = np.interp(
                             segment_time_range,

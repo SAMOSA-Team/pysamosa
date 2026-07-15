@@ -1,13 +1,8 @@
-"""
-PurpleAir
-Last Updated: June 15, 2024
-This script formats the PurpleAir data downloaded
-from the Earthmetry platform.
-@author: markjcampmier
-"""
-# Import Packages
+"""PurpleAir data formatter — Earthmetry platform."""
+
 import os
 import glob
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -15,22 +10,16 @@ import xarray as xr
 from scipy.interpolate import BSpline
 
 
-# Define Functions
-def read_pa(file, dict_position):
-    """
-    Formats PurpleAir data into a dictionary of DataFrames.
+def _read_pa(file: str, dict_position: dict) -> dict[str, pd.DataFrame]:
+    """Format a single PurpleAir feather file into per-channel DataFrames.
 
-    :param file: The path to the PurpleAir data file.
-    :type file: str
-    :param dict_position: The position codes for site-sensor pairs.
-    :type dict_position: dict
-    :returns A dictionary of DataFrames, where the keys are `'a'`, `'b'`, and `'rh'`, and
-        the values are the corresponding DataFrames for PM2.5 concentration,
-        PM2.5 concentration, and relative humidity, respectively.
-    :rtype: dict
-    """
+    Args:
+        file: Path to a PurpleAir feather file.
+        dict_position: Mapping of site_sensor string to integer position code.
 
-    # Read the PurpleAir data file.
+    Returns:
+        Dict with keys 'a', 'b', 'rh' and pivoted DataFrames as values.
+    """
     df_pa = pd.read_feather(
         file,
         columns=[
@@ -49,87 +38,58 @@ def read_pa(file, dict_position):
     df_pa["site_sensor"] = df_pa["site_sensor"].replace(dict_position)
     df_pa.rename(columns={"site_sensor": "position"}, inplace=True)
 
-    # Pivot table the data by observation hour and sensor identifier.
+    kwargs = dict(index="observation_hour_start", aggfunc="mean")
     df_pa_a = (
-        df_pa.pivot_table(
-            index="observation_hour_start",
-            columns="position",
-            values="pm25_atm_ch_a_average",
-            aggfunc="mean",
-        )
+        df_pa.pivot_table(columns="position", values="pm25_atm_ch_a_average", **kwargs)
         .round(2)
         .resample("1h")
         .mean()
     )
     df_pa_b = (
-        df_pa.pivot_table(
-            index="observation_hour_start",
-            columns="position",
-            values="pm25_atm_ch_b_average",
-            aggfunc="mean",
-        )
+        df_pa.pivot_table(columns="position", values="pm25_atm_ch_b_average", **kwargs)
         .round(2)
         .resample("1h")
         .mean()
     )
     df_pa_rh = (
-        df_pa.pivot_table(
-            index="observation_hour_start",
-            columns="position",
-            values="humidity_average",
-            aggfunc="mean",
-        )
+        df_pa.pivot_table(columns="position", values="humidity_average", **kwargs)
         .round(2)
         .resample("1h")
         .mean()
     )
 
-    # Return a dictionary of the DataFrames.
     return {"a": df_pa_a, "b": df_pa_b, "rh": df_pa_rh}
 
 
-def index_pa(in_path, dict_position):
-    """
-    Reads PurpleAir data from a directory of files.
+def _index_pa(in_path: str, dict_position: dict) -> dict[str, pd.DataFrame]:
+    """Read all PurpleAir feather files from a directory and concatenate them.
 
-    :param in_path: The path to the directory containing the PurpleAir data files.
-    :type in_path: str
-    :param dict_position: The position codes for site-sensor pairs.
-    :type dict_position: dict
-    :returns dict_pa: A dictionary of DataFrames, where the keys are `'a'`, `'b'`, and `'rh'`, and
-            the values are the corresponding DataFrames for PM2.5 concentration,
-            PM2.5 concentration, and relative humidity, respectively.
-    :rtype: dict_pa: dict
-    """
+    Args:
+        in_path: Path to the directory containing PurpleAir feather files.
+        dict_position: Mapping of site_sensor string to integer position code.
 
-    # Get a list of all the PurpleAir data files in the directory.
+    Returns:
+        Dict with keys 'a', 'b', 'rh' and concatenated DataFrames.
+    """
     lst_purpleair = glob.glob(os.path.join(in_path, "*_samosa.feather"))
+    lst_dict_pa = [_read_pa(i, dict_position) for i in lst_purpleair]
 
-    # Format each PurpleAir data file into a dictionary of DataFrames.
-    lst_dict_pa = [read_pa(i, dict_position) for i in lst_purpleair]
-
-    # Concatenate the DataFrames from each file into a single DataFrame for each
-    # variable.
-    dict_pa = {
+    return {
         "a": pd.concat([i["a"] for i in lst_dict_pa]),
         "b": pd.concat([i["b"] for i in lst_dict_pa]),
         "rh": pd.concat([i["rh"] for i in lst_dict_pa]),
     }
 
-    return dict_pa
 
+def _index_meta(in_path: str) -> xr.Dataset:
+    """Read and format the PurpleAir history metadata into an xarray Dataset.
 
-def index_meta(in_path):
+    Args:
+        in_path: Path to the directory containing history.feather.
+
+    Returns:
+        Metadata dataset indexed by position.
     """
-    Formats the metadata file into a xarray compatible dataset to merge
-    with the PurpleAir dataset.
-
-    :param in_path: The path to the directory containing the PurpleAir data files.
-    :type in_path: str
-    :returns ds_meta: Dataset of PurpleAir metadata.
-    :rtype: xarray.Dataset
-    """
-
     df_meta = pd.read_feather(
         os.path.join(in_path, "history.feather"),
         columns=[
@@ -150,15 +110,11 @@ def index_meta(in_path):
     )
 
     df_meta = df_meta.drop(["effective_date", "discontinue_date"], axis=1)
-
     df_meta["site_sensor"] = (
         df_meta["site_id"].astype(str) + "&" + df_meta["samosa_identifier"].astype(str)
     )
-    df_meta = df_meta.set_index("site_sensor")
-    df_meta = df_meta.drop_duplicates()
-
+    df_meta = df_meta.set_index("site_sensor").drop_duplicates()
     df_meta["position"] = range(len(df_meta.index))
-
     df_meta = df_meta.reset_index().set_index("position")
 
     df_meta.loc[df_meta.settlement_type == "Large City", "settlement_type"] = 2
@@ -186,18 +142,17 @@ def index_meta(in_path):
     return ds_meta
 
 
-def atm_to_cf1(atm):
-    """
-    Fits the PurpleAir ATM concentration into CF1.
+def _atm_to_cf1(atm: np.ndarray) -> np.ndarray:
+    """Convert PurpleAir ATM concentration to CF1 using a fitted B-spline.
 
-    :param atm: Array of ATM data from PurpleAir data.
-    :type atm: numpy.ndarray
-    :return cf1: Fitted array of CF1 data from PurpleAir data.
-    :rtype: cf1: numpy.ndarray
+    Args:
+        atm: Array of ATM PM2.5 values from PurpleAir.
+
+    Returns:
+        CF1-corrected PM2.5 array.
     """
-    spl_data = np.load(
-        "/Users/markcampmier/pysamosa/pysamosa/data_source/spline_parameters.npz"
-    )
+    spline_path = Path(__file__).parent / "spline_parameters.npz"
+    spl_data = np.load(spline_path)
     spl = BSpline(spl_data["knots"], spl_data["coefficients"], 3)
 
     cf1 = atm.copy()
@@ -208,16 +163,16 @@ def atm_to_cf1(atm):
     return cf1
 
 
-def format_pa(in_path):
-    """
-    Reads PurpleAir data from a directory of files.
+def format_pa(in_path: str) -> xr.Dataset:
+    """Format PurpleAir (Earthmetry) data into a munged xarray Dataset.
 
-    :param in_path:
-    :type in_path: str
-    :return ds: PurpleAir dataset
-    :rtype ds: xarray.Dataset
+    Args:
+        in_path: Path to the directory containing PurpleAir feather files.
+
+    Returns:
+        Merged PurpleAir dataset with CF1-corrected PM2.5 and metadata.
     """
-    ds_meta = index_meta(in_path)
+    ds_meta = _index_meta(in_path)
     dict_position = {
         v: k
         for k, v in (
@@ -226,39 +181,36 @@ def format_pa(in_path):
     }
     ds_meta = ds_meta.drop(["site_sensor"])
 
-    dict_pa = index_pa(in_path, dict_position)
+    dict_pa = _index_pa(in_path, dict_position)
 
     ds_a = (
         dict_pa["a"]
         .reset_index()
-        .melt(id_vars="observation_hour_start", value_name="A")
+        .melt(id_vars="observation_hour_start", value_name="a")
         .set_index(["position", "observation_hour_start"])
         .to_xarray()
     )
-
     ds_b = (
         dict_pa["b"]
         .reset_index()
-        .melt(id_vars="observation_hour_start", value_name="B")
+        .melt(id_vars="observation_hour_start", value_name="b")
         .set_index(["position", "observation_hour_start"])
         .to_xarray()
     )
     ds_rh = (
         dict_pa["rh"]
         .reset_index()
-        .melt(id_vars="observation_hour_start", value_name="RH")
+        .melt(id_vars="observation_hour_start", value_name="rh")
         .set_index(["position", "observation_hour_start"])
         .to_xarray()
     )
     ds_pa = xr.merge([ds_a, ds_b, ds_rh])
-
     ds_pa = ds_pa.rename({"observation_hour_start": "time"})
 
-    ds_pa["A"] = xr.apply_ufunc(atm_to_cf1, ds_pa.A)
-    ds_pa["B"] = xr.apply_ufunc(atm_to_cf1, ds_pa.B)
+    ds_pa["a"] = xr.apply_ufunc(_atm_to_cf1, ds_pa.a)
+    ds_pa["b"] = xr.apply_ufunc(_atm_to_cf1, ds_pa.b)
 
     ds = xr.merge([ds_pa, ds_meta])
-
     ds = ds.set_coords(
         [
             "latitude",
@@ -274,8 +226,6 @@ def format_pa(in_path):
             "cluster",
         ]
     )
-
-    ds = ds.rename_vars({"A": "a", "B": "b", "RH": "rh"})
 
     for var in ds.data_vars:
         ds[var].encoding = {"_FillValue": np.nan}
@@ -297,36 +247,14 @@ def format_pa(in_path):
     )
 
     ds["disagreement"] = np.abs((2 * (ds["a"] - ds["b"])) / (ds["a"] + ds["b"])) * 100
-
     ds["disagreement"] = ds["disagreement"].assign_attrs(
         long_name="Channel Disagreement",
         units="%",
         description="PurpleAir Node Internal Disagreement",
     )
 
-    ds["latitude"].attrs["units"] = "degrees_north"
-    ds["latitude"].attrs["long_name"] = "Latitude"
-
-    ds["longitude"].attrs["units"] = "degrees_east"
-    ds["longitude"].attrs["long_name"] = "Longitude"
-
+    ds["latitude"].attrs.update({"units": "degrees_north", "long_name": "Latitude"})
+    ds["longitude"].attrs.update({"units": "degrees_east", "long_name": "Longitude"})
     ds.attrs["history"] = "munged"
 
     return ds
-
-
-# Fitting new spline for ATM -> CF1
-"""
-new_df = df[(df.loc[:,'PA_ATM (ug/m3)']>=20) & (df.loc[:,'PA_ATM (ug/m3)']<=80)].sort_values(by='PA_ATM (ug/m3)').round(0)
-new_df = new_df.groupby('PA_ATM (ug/m3)').mean().reset_index()
-
-x = new_df['PA_ATM (ug/m3)']
-y = new_df['PA_CF1 (ug/m3)'].rolling(3, min_periods=1).mean()
-
-# monotonic cubic spline interpolation
-spl = make_interp_spline(x, y, k=3)
-
-np.savez('spline_parameters.npz',
-         knots=spl.t,
-         coefficients=spl.c)
-"""

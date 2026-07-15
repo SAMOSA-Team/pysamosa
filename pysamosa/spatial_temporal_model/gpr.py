@@ -1,11 +1,4 @@
-"""
-GPR Functions
-Last Updated: April 30, 2025
-This script contains the Gaussian Process Regression (GPR)
-functions for spatial and temporal interpolation.
-@author: markjcampmier
-"""
-# Import Packages
+"""Gaussian Process Regression (GPR) functions for spatial and temporal interpolation."""
 
 import numpy as np
 import pandas as pd
@@ -14,12 +7,17 @@ import matplotlib.pyplot as plt
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process import kernels
 
-# Define Functions
-
 
 def build_gpr_model_for_imf_pod(pod_results, imf_idx, mode_idx=0):
-    """
-    Build a Gaussian Process Regression model for a specific IMF-POD mode.
+    """Fit a Gaussian Process Regression model for a specific IMF-POD temporal mode.
+
+    Args:
+        pod_results: POD result dict from :func:`perform_gappy_pod_on_imf`.
+        imf_idx: IMF level index (controls kernel selection).
+        mode_idx: Which spatial mode to model (0 = dominant mode).
+
+    Returns:
+        Dict with keys 'gpr', 'imf_idx', 'mode_idx', 'eigenvector', 'site_ids', etc.
     """
     # Extract data for this mode
     eigenvector = pod_results["eigenvectors"][:, mode_idx]  # Spatial pattern
@@ -84,8 +82,16 @@ def build_gpr_model_for_imf_pod(pod_results, imf_idx, mode_idx=0):
 
 
 def build_spatiotemporal_gpr_model(pod_results, station_coords, imf_idx, mode_idx=0):
-    """
-    Build a spatiotemporal GPR model for a specific IMF-POD mode.
+    """Fit a joint spatiotemporal GPR model using station coordinates and temporal coefficients.
+
+    Args:
+        pod_results: POD result dict from :func:`perform_gappy_pod_on_imf`.
+        station_coords: Array of shape (n_stations, 2) with [lat, lon] per station.
+        imf_idx: IMF level index (controls kernel selection).
+        mode_idx: Which spatial mode to model (0 = dominant mode).
+
+    Returns:
+        Dict with fitted GPR and supporting metadata.
     """
     # Extract data for this mode
     eigenvector = pod_results["eigenvectors"][:, mode_idx]  # Spatial pattern
@@ -204,8 +210,16 @@ def build_spatiotemporal_gpr_model(pod_results, station_coords, imf_idx, mode_id
 
 
 def predict_with_gpr_model(model, timestamps=None, n_points=100, return_std=True):
-    """
-    Make predictions with the GPR model.
+    """Generate predictions from a fitted GPR model over a given time axis.
+
+    Args:
+        model: Model dict from :func:`build_gpr_model_for_imf_pod`.
+        timestamps: Prediction timestamps; evenly spaced over training range if None.
+        n_points: Number of prediction points when *timestamps* is None.
+        return_std: Include predictive standard deviation in the result.
+
+    Returns:
+        Dict with 'times', 'values', and 'std' arrays.
     """
     # Get model components
     gp = model["gpr"]
@@ -241,9 +255,7 @@ def predict_with_gpr_model(model, timestamps=None, n_points=100, return_std=True
 def visualize_gpr_predictions(
     predictions, original_timestamps=None, original_values=None
 ):
-    """
-    Visualize GPR predictions.
-    """
+    """Plot GPR predictions with uncertainty band and optional training overlay."""
     # Get prediction components
     t_predict = predictions["times"]
     y_predict = predictions["values"]
@@ -303,9 +315,7 @@ def visualize_gpr_predictions(
 
 
 def reconstruct_data_from_gpr_models(models, predictions_list, site_ids=None):
-    """
-    Reconstruct data from GPR models for multiple IMF-POD modes.
-    """
+    """Reconstruct the full data field from GPR predictions across multiple IMF-POD modes."""
     # Check that models and predictions match
     if len(models) != len(predictions_list):
         raise ValueError("Number of models and predictions must match")
@@ -351,9 +361,7 @@ def reconstruct_data_from_gpr_models(models, predictions_list, site_ids=None):
 def predict_with_spatiotemporal_gpr(
     model, times=None, locations=None, n_time_points=100, return_std=True
 ):
-    """
-    Make predictions with the spatiotemporal GPR model.
-    """
+    """Generate predictions from a fitted spatiotemporal GPR model over time and space."""
     # Get model components
     gp = model["gpr"]
     t_train = model["t_numeric"]
@@ -422,23 +430,15 @@ def predict_with_spatiotemporal_gpr(
 
 
 def reconstruct_data_from_spatiotemporal_gpr(models, predictions_list, locations=None):
-    """
-    Reconstruct data from spatiotemporal GPR models for multiple IMF-POD modes.
+    """Reconstruct the full data field by summing contributions from all IMF-POD spatiotemporal GPR modes.
 
-    Parameters:
-    -----------
-    models : list
-        List of model dictionaries from build_spatiotemporal_gpr_model
-    predictions_list : list
-        List of prediction dictionaries from predict_with_spatiotemporal_gpr
-    locations : list, optional
-        List of (lat, lon) tuples to include in reconstruction
-        If None, uses locations from the first prediction set
+    Args:
+        models: List of model dicts from :func:`build_spatiotemporal_gpr_model`.
+        predictions_list: List of prediction dicts from :func:`predict_with_spatiotemporal_gpr`.
+        locations: List of (lat, lon) tuples to reconstruct; taken from first prediction if None.
 
     Returns:
-    --------
-    reconstruction : dict
-        Dictionary containing reconstructed data
+        Dict with 'times', 'locations', 'values', and 'uncertainty' arrays.
     """
     # Check that models and predictions match
     if len(models) != len(predictions_list):
@@ -494,24 +494,16 @@ def reconstruct_data_from_spatiotemporal_gpr(models, predictions_list, locations
 
 
 def leave_one_out_validation(pod_results, station_coords, imf_idx=0, n_modes=3):
-    """
-    Perform leave-one-out cross-validation to assess spatiotemporal model performance.
+    """Leave-one-out cross-validation of the spatiotemporal GPR model.
 
-    Parameters:
-    -----------
-    pod_results : dict
-        Results from POD analysis
-    station_coords : DataFrame
-        DataFrame with station coordinates
-    imf_idx : int
-        IMF level to validate
-    n_modes : int
-        Number of top modes to include
+    Args:
+        pod_results: POD result dict from :func:`perform_gappy_pod_on_imf`.
+        station_coords: DataFrame with 'latitude' and 'longitude' per station.
+        imf_idx: IMF level to validate.
+        n_modes: Number of leading spatial modes to include.
 
     Returns:
-    --------
-    validation_results : dict
-        Dictionary with validation metrics
+        Dict with per-site RMSE, R², predictions, actuals, and uncertainties.
     """
     site_ids = pod_results["site_ids"]
     n_sites = len(site_ids)
@@ -639,24 +631,16 @@ def leave_one_out_validation(pod_results, station_coords, imf_idx=0, n_modes=3):
 
 
 def compute_variograms_for_imf_pod(pod_results, station_coords, imf_idx=0, n_modes=3):
-    """
-    Compute variograms for spatial patterns in IMF-POD analysis.
+    """Compute empirical and fitted variograms for spatial patterns in IMF-POD analysis.
 
-    Parameters:
-    -----------
-    pod_results : dict
-        Results from POD analysis
-    station_coords : DataFrame
-        DataFrame with station coordinates
-    imf_idx : int
-        IMF level to analyze
-    n_modes : int
-        Number of top modes to include
+    Args:
+        pod_results: POD result dict from :func:`perform_gappy_pod_on_imf`.
+        station_coords: DataFrame with 'latitude' and 'longitude' per station.
+        imf_idx: IMF level to analyse.
+        n_modes: Number of leading spatial modes to include.
 
     Returns:
-    --------
-    variogram_results : dict
-        Dictionary with variogram analysis results
+        Dict with 'variograms', 'variogram_models', and 'variogram_parameters'.
     """
     import skgstat as skg  # Requires scikit-gstat package
 

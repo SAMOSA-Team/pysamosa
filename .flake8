@@ -1,5 +1,13 @@
 [flake8]
-max-line-length = 88
-extend-ignore = E203, E266, E501, W503
-max-complexity = 18
-select = B,C,E,F,W,T4,B9
+max-line-length = 130
+extend-ignore =
+    # black-compatible style: slices and binary operator line breaks
+    E203,
+    W503,
+    # math-heavy code: missing whitespace around arithmetic operators
+    E226,
+    # complexity: these functions are intentionally complex numerical methods
+    C901
+per-file-ignores =
+    # car_bayes.py is a development notebook — script sections use runtime vars
+    pysamosa/spatial_temporal_model/car_bayes.py: E402,E501,F401,F811,F821,F541,E225,E231

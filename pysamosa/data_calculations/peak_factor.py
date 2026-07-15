@@ -1,24 +1,26 @@
+"""Peak factor and baseline estimation pipeline for PurpleAir sensor data."""
+
+import warnings
+import numpy as np
 import pandas as pd
 import xarray as xr
-import numpy as np
 from tqdm import tqdm
-import warnings
 from multiprocessing import Pool, cpu_count
 
 warnings.filterwarnings("ignore")
 
 
 def calculate_daily_baseline(df, col, quantile=0.1, dof=6):
-    """Calculate daily baseline using cubic regression splines.
+    """Fit a cubic regression spline baseline at a given quantile.
 
     Args:
-        df: DataFrame with time index and measurement column
-        col: Column name for measurements
-        quantile: Quantile for regression (e.g., 0.1 for 10th percentile)
-        dof: Degrees of freedom for the cubic regression spline
+        df: DataFrame with a datetime index and a measurement column.
+        col: Column name for the target measurement.
+        quantile: Target quantile for the baseline regression (e.g. 0.1 = 10th percentile).
+        dof: Degrees of freedom for the cubic regression spline.
 
     Returns:
-        DataFrame with baseline and peak columns or None if calculation fails
+        DataFrame with 'baseline' and 'peak' columns, or None if fitting fails.
     """
     # Check if we have enough data points
     if df is None or len(df) < dof + 2 or len(df.index.hour.unique()) < 3:
@@ -86,8 +88,8 @@ def calculate_daily_baseline(df, col, quantile=0.1, dof=6):
         return None
 
 
-def process_sensor_chunk(args):
-    """Process a chunk of data for a single sensor and date"""
+def _process_sensor_chunk(args):
+    """Process a chunk of data for a single sensor and date."""
     sensor, date, data_dict, quantile, dof = args
 
     try:
@@ -117,7 +119,17 @@ def process_sensor_chunk(args):
 
 
 def baseline_pipeline(ds, quantile=0.1, dof=6, n_processes=None):
-    """Parallel processing pipeline with improved chunking and error handling"""
+    """Run the parallel baseline estimation pipeline across all sensors.
+
+    Args:
+        ds: Dataset containing 'pa_campmier_delhi_mean' with a 'sensor' dimension.
+        quantile: Baseline quantile for cubic spline regression.
+        dof: Degrees of freedom for the spline.
+        n_processes: Number of worker processes; defaults to cpu_count - 1.
+
+    Returns:
+        Dataset with 'baseline' and 'peak' variables indexed by sensor and time.
+    """
 
     # Set number of processes
     if n_processes is None:
@@ -158,7 +170,7 @@ def baseline_pipeline(ds, quantile=0.1, dof=6, n_processes=None):
             batch = chunks[i : i + batch_size]
             results = list(
                 tqdm(
-                    pool.imap(process_sensor_chunk, batch),
+                    pool.imap(_process_sensor_chunk, batch),
                     total=len(batch),
                     desc=f"Processing batch {i // batch_size + 1}/{(len(chunks) - 1) // batch_size + 1}",
                 )
@@ -187,7 +199,7 @@ def baseline_pipeline(ds, quantile=0.1, dof=6, n_processes=None):
 
 # Alternative simpler version without multiprocessing for debugging
 def baseline_pipeline_serial(ds, quantile=0.1, dof=6):
-    """Serial processing version for debugging"""
+    """Serial baseline pipeline (single-process, for debugging)."""
     print("Running serial baseline pipeline...")
 
     # Load data

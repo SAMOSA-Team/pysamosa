@@ -1,104 +1,85 @@
-"""
-TROPOMI
-Last Updated: Jan 12, 2024
-This script formats and QA's TROPOMI NO2 column density
-downloaded from Google Earth Engine.
-@author: markjcampmier
-"""
-# Import Packages
+"""TROPOMI NO2 column density formatter."""
+
 import os
 import glob
 import re
 import pandas as pd
 import geopandas as gpd
 import xarray as xr
-import rioxarray as rxr
+import rioxarray as rxr  # noqa: F401 — registers the rio accessor
 from shapely.geometry import mapping
 from rasterio.enums import Resampling
 
 
-def index_tropomi(ds, bounds=None):
-    """
-    Indexes TROPOMI data by date and time, and rounds the coordinates to 3 and 2 decimal places, respectively.
+def _index_tropomi(ds: xr.Dataset, bounds: dict | None = None) -> xr.Dataset:
+    """Reproject, clip, and add a time dimension to a single TROPOMI tile.
 
-    :param ds: A xarray.Dataset containing TROPOMI data.
-    :type ds: xarray.Dataset
-    :param bounds: A dictionary containing the bounding box coordinates (minx, miny, maxx, maxy).
-    :type bounds: dict
-    :returns ds: An xarray.Dataset with indexed TROPOMI data.
-    :rtype: xarray.Dataset
-    """
+    Args:
+        ds: xarray Dataset for one TROPOMI file.
+        bounds: Bounding box dict with keys minx, miny, maxx, maxy.
 
+    Returns:
+        Indexed TROPOMI dataset with a time dimension.
+    """
     if bounds is None:
-        bounds = {'minx': 73.29, 'miny': 19.77, 'maxx': 91.05, 'maxy': 33.29}
+        bounds = {"minx": 73.29, "miny": 19.77, "maxx": 91.05, "maxy": 33.29}
 
-    ds = ds.squeeze(dim='band').reset_coords(['band'], drop=True)
-
-    ds = ds.assign_coords({'x': ds.x.round(3),
-                           'y': ds.y.round(3)})
-
-    ds = ds.rio.reproject(ds.rio.crs, resolution=0.01,
-                          resampling=Resampling.bilinear)
-
-    ds = ds.rio.clip_box(minx=bounds['minx'], miny=bounds['miny'],
-                         maxx=bounds['maxx'], maxy=bounds['maxy'])
-
-    ds = ds.assign_coords({'x': ds.x.round(2),
-                           'y': ds.y.round(2)})
-
+    ds = ds.squeeze(dim="band").reset_coords(["band"], drop=True)
+    ds = ds.assign_coords({"x": ds.x.round(3), "y": ds.y.round(3)})
+    ds = ds.rio.reproject(ds.rio.crs, resolution=0.01, resampling=Resampling.bilinear)
+    ds = ds.rio.clip_box(
+        minx=bounds["minx"],
+        miny=bounds["miny"],
+        maxx=bounds["maxx"],
+        maxy=bounds["maxy"],
+    )
+    ds = ds.assign_coords({"x": ds.x.round(2), "y": ds.y.round(2)})
     ds = ds.band_data.pad()
 
-    # Extract the date and time from the filename.
-    str_regex = re.compile(r'\d{2}[A-Za-z]{3}\d{4}_\d{2}')
+    str_regex = re.compile(r"\d{2}[A-Za-z]{3}\d{4}_\d{2}")
     str_match = str_regex.search(ds.encoding["source"])
-    str_extract = str_match.group()
-
-    # Create a Pandas datetime index.
-    idx_time = pd.DatetimeIndex([pd.to_datetime(str_extract,
-                                                format='%d%b%Y_%H')])
-
-    # Expand the dataset with the time dimension.
-    ds = ds.expand_dims({'time': idx_time})
+    idx_time = pd.DatetimeIndex([pd.to_datetime(str_match.group(), format="%d%b%Y_%H")])
+    ds = ds.expand_dims({"time": idx_time})
 
     return ds
 
 
-def clip_tropmi(ds_tropomi, gdf_shape, all_touched=False):
+def clip_tropomi(
+    ds_tropomi: xr.Dataset, gdf_shape: gpd.GeoDataFrame, all_touched: bool = False
+) -> xr.Dataset:
+    """Clip a TROPOMI dataset to a shapefile geometry.
+
+    Args:
+        ds_tropomi: TROPOMI dataset.
+        gdf_shape: GeoDataFrame whose geometry defines the clip boundary.
+        all_touched: Include all pixels touching the shapefile boundary.
+
+    Returns:
+        Clipped TROPOMI dataset.
     """
-    Clips TROPOMI data to a given shapefile.
+    ds_tropomi = ds_tropomi.rio.set_spatial_dims(x_dim="longitude", y_dim="latitude")
+    return ds_tropomi.rio.clip(
+        gdf_shape.geometry.apply(mapping), ds_tropomi.rio.crs, all_touched=all_touched
+    )
 
-    :param ds_tropomi: A xarray.Dataset containing TROPOMI data.
-    :type ds_tropomi: xarray.Dataset
-    :param gdf_shape: A GeoPandas GeoDataFrame representing the shapefile.
-    :type gdf_shape: GeoPandas GeoDataFrame
-    :param all_touched: A boolean indicating whether to include all pixels that touch the shapefile.
-    :type all_touched: bool
-    :returns ds_tropomi: An xarray.Dataset containing TROPOMI data.
-    :rtype: xarray.Dataset
+
+def format_tropomi(in_path: str) -> xr.Dataset:
+    """Format TROPOMI TIF files from a directory into a single xarray Dataset.
+
+    Args:
+        in_path: Path to the directory containing TROPOMI TIF files.
+
+    Returns:
+        Combined TROPOMI NO2 column dataset.
     """
-
-    ds_tropomi = ds_tropomi.rio.set_spatial_dims(x_dim='longitude',
-                                                 y_dim='latitude')
-    ds_tropomi_clipped = ds_tropomi.rio.clip(gdf_shape.geometry.apply(mapping),
-                                             ds_tropomi.rio.crs, all_touched=all_touched)
-    return ds_tropomi_clipped
-
-
-def format_tropomi(in_path):
-    """
-    Formats TROPOMI data by indexing and clipping.
-    :param in_path: The path to the directory containing the TROPOMI data files.
-    :type in_path: str
-    :returns ds_tropomi: An xarray.Dataset containing TROPOMI data.
-    :rtype: xarray.Dataset
-    """
-    ds_tropomi = xr.open_mfdataset(glob.glob(os.path.join(in_path, '*.tif')),
-                                   preprocess=index_tropomi,
-                                   combine='by_coords',
-                                   parallel=True)
-    ds_tropomi = ds_tropomi.rename({'x': 'longitude',
-                                    'y': 'latitude',
-                                    'band_data': 'no2_column'})
-
-    ds_tropomi = ds_tropomi.sortby('time')
+    ds_tropomi = xr.open_mfdataset(
+        glob.glob(os.path.join(in_path, "*.tif")),
+        preprocess=_index_tropomi,
+        combine="by_coords",
+        parallel=True,
+    )
+    ds_tropomi = ds_tropomi.rename(
+        {"x": "longitude", "y": "latitude", "band_data": "no2_column"}
+    )
+    ds_tropomi = ds_tropomi.sortby("time")
     return ds_tropomi

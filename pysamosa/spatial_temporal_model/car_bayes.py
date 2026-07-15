@@ -1,22 +1,22 @@
-# flake8: noqa
+"""Conditional Auto-Regressive (CAR) Bayesian model for spatio-temporal PM2.5 fields."""
 
 
 class CARModel:
     def __init__(self, df_sensors, df_satellite, gdf):
-        ## Data shape/specifications
+        # Data shape/specifications
         self.n_settlements = df_satellite.shape[1]
         self.n_hours = df_sensors.shape[0]
         self.hour_to_month = df_sensors.index.month
         self.n_params = self.n_settlements * self.n_hours
 
-        ## Model inputs
+        # Model inputs
         self.Q_obs = None
         self.b_obs = None
         self.coords = gdf.loc[:, ["latitude", "longitude"]]
         self.satellite_monthly = df_satellite
         self.sensor_obs = df_sensors
 
-        ## Model params
+        # Model params
         self.W = None
         self.D = None
         self.Q_spatial = None
@@ -30,7 +30,7 @@ class CARModel:
         self.mu_prior = None
         self.diurnal_weights = None
 
-        ## Posterior
+        # Posterior
         self.Q_posterior = None
         self.b_posterior = None
 
@@ -79,8 +79,6 @@ class CARModel:
         Q_day = np.zeros((self.n_hours, self.n_hours))
 
         for h in range(self.n_hours):
-            hour_of_day = h % 24
-
             # Same hour previous day
             if h >= 24:
                 Q_day[h, h - 24] = -1
@@ -180,26 +178,26 @@ class CARModel:
         self.b_posterior = b_posterior
 
 
-import numpy as np
-import pandas as pd
-import scipy.sparse as sp
-from scipy.spatial import cKDTree
+import numpy as np  # noqa: E402, F811
+import pandas as pd  # noqa: E402, F811
+import scipy.sparse as sp  # noqa: E402
+from scipy.spatial import cKDTree  # noqa: E402
 
 
-class CARModel:
+class CARModel:  # noqa: F811
     def __init__(self, df_sensors, df_satellite, gdf):
-        ## Data shape/specifications
+        # Data shape/specifications
         self.n_settlements = df_satellite.shape[1]
         self.n_hours = df_sensors.shape[0]
         self.hour_to_month = df_sensors.index.month
         self.n_params = self.n_settlements * self.n_hours
 
-        ## Model inputs
+        # Model inputs
         self.coords = gdf.loc[:, ["latitude", "longitude"]]
         self.satellite_monthly = df_satellite
         self.sensor_obs = df_sensors
 
-        ## Model params
+        # Model params
         self.W = None
         self.D = None
         self.Q_spatial = None
@@ -211,7 +209,7 @@ class CARModel:
         self.Q_prior = None
         self.mu_prior = None
 
-        ## Observation matrices
+        # Observation matrices
         self.Q_satellite = None  # Monthly satellite constraints
         self.b_satellite = None
         self.A_satellite = None  # Aggregation matrix (for diagnostics)
@@ -220,11 +218,11 @@ class CARModel:
         self.Q_sensor_pattern = None  # Sensor temporal pattern (optional/weak)
         self.b_sensor_pattern = None
 
-        ## Posterior
+        # Posterior
         self.Q_posterior = None
         self.b_posterior = None
 
-        ## Derived
+        # Derived
         self.diurnal_patterns = None
 
     def create_adjacency_matrix(self):
@@ -425,7 +423,7 @@ class CARModel:
                                 mu_prior[param_idx] = self.satellite_monthly.iloc[
                                     self.satellite_monthly.index.month == month_idx, s
                                 ]
-                            except:
+                            except Exception:
                                 mu_prior[param_idx] = 50.0  # Default PM2.5 value
 
         self.mu_prior = mu_prior
@@ -594,13 +592,13 @@ class CARModel:
         print(
             f"Parameters: {self.n_params} ({self.n_settlements} settlements × {self.n_hours} hours)"
         )
-        print(f"\nPrecision matrix diagonal means:")
+        print("\nPrecision matrix diagonal means:")
         print(f"  Q_prior:     {self.Q_prior.diagonal().mean():.4f}")
         print(f"  Q_satellite: {self.Q_satellite.diagonal().mean():.4f}")
         if self.Q_sensor_pattern is not None:
             print(f"  Q_sensor:    {self.Q_sensor_pattern.diagonal().mean():.4f}")
 
-        print(f"\nRelative strengths:")
+        print("\nRelative strengths:")
         print(
             f"  Satellite/Prior ratio: {self.Q_satellite.diagonal().mean() / self.Q_prior.diagonal().mean():.2f}x"
         )
@@ -609,7 +607,7 @@ class CARModel:
                 f"  Sensor/Prior ratio:    {self.Q_sensor_pattern.diagonal().mean() / self.Q_prior.diagonal().mean():.2f}x"
             )
 
-        print(f"\nSparsity:")
+        print("\nSparsity:")
         print(
             f"  Q_satellite non-zeros: {self.Q_satellite.nnz:,} ({self.Q_satellite.nnz/self.n_params**2*100:.3f}%)"
         )
@@ -617,7 +615,7 @@ class CARModel:
             f"  Q_prior non-zeros:     {self.Q_prior.nnz:,} ({self.Q_prior.nnz/self.n_params**2*100:.3f}%)"
         )
 
-        print(f"\nData coverage:")
+        print("\nData coverage:")
         print(
             f"  Sensor observations:     {(~self.sensor_obs.isna()).sum().sum() / self.sensor_obs.size * 100:.1f}%"
         )
@@ -627,7 +625,7 @@ class CARModel:
         if hasattr(self, "A_satellite") and hasattr(self, "mu_prior"):
             predicted_monthly = self.A_satellite @ self.mu_prior
             residuals = predicted_monthly - self.y_satellite
-            print(f"\nPrior-satellite alignment:")
+            print("\nPrior-satellite alignment:")
             print(f"  Mean absolute error: {np.abs(residuals).mean():.2f}")
             print(
                 f"  Mean relative error: {np.abs(residuals / self.y_satellite).mean()*100:.1f}%"
@@ -881,25 +879,25 @@ from scipy.sparse.linalg import cg
 
 class GapFillingCARModel:
     def __init__(self, df_sensors, df_satellite, gdf):
-        ## Data shape/specifications
+        # Data shape/specifications
         self.n_settlements = df_sensors.shape[1]
         self.n_hours = df_sensors.shape[0]
         self.hour_to_month = df_sensors.index.month
         self.n_params = self.n_settlements * self.n_hours
 
-        ## Model inputs
+        # Model inputs
         self.coords = gdf.loc[:, ["latitude", "longitude"]]
         self.satellite_monthly = df_satellite
         self.sensor_obs = df_sensors
 
-        ## Model components
+        # Model components
         self.W = None
         self.D = None
         self.Q_spatial = None
         self.Q_temporal = None
         self.Q_prior = None
 
-        ## Observations (sensors STRONG, satellite WEAK)
+        # Observations (sensors STRONG, satellite WEAK)
         self.Q_sensor = None
         self.b_sensor = None
 
@@ -908,7 +906,7 @@ class GapFillingCARModel:
         self.A_satellite = None
         self.y_satellite = None
 
-        ## Solution
+        # Solution
         self.Q_posterior = None
         self.b_posterior = None
         self.theta_map = None
@@ -1134,9 +1132,7 @@ def evaluate_gap_filling(
     sensor_train,
     sensor_test,
 ):
-    """
-    Fit gap-filling model and evaluate on held-out sensors.
-    """
+    """Fit gap-filling model and evaluate on held-out sensors."""
     # Build model
     temp_model = GapFillingCARModel(sensor_train, df_sat, gdf_x)
     temp_model.create_adjacency_matrix()
@@ -1653,6 +1649,7 @@ print(f"  Shape: {Q_spatial.shape}")
 print(f"  tau_spatial: {tau_spatial}")
 print()
 
+
 # =============================================================================
 # TEMPORAL PRECISION (HOURLY)
 # =============================================================================
@@ -1897,6 +1894,7 @@ print(
 )
 print()
 
+
 # Helper functions for parameter vector manipulation
 def flatten_field(field_2d):
     """
@@ -1989,6 +1987,7 @@ import scipy.sparse as sp
 # =============================================================================
 # NEXT SMALL STEP: BUILD OBSERVATION PRECISION MATRIX
 # =============================================================================
+
 
 # Helper function for indexing
 def get_param_index(settlement_idx, hour_idx, n_hours):
@@ -2205,6 +2204,7 @@ print()
 print("Matrix properties for solving:")
 print("-" * 40)
 
+
 # Check if symmetric (required for conjugate gradient)
 # For sparse matrices, check a small subset
 def check_symmetry_sparse(A, n_check=100):
@@ -2361,7 +2361,7 @@ sensor_mae = np.mean(np.abs(sensor_obs_values - sensor_est_values))
 print(f"  Sensor fit:")
 print(f"    RMSE: {sensor_rmse:.2f} µg/m³")
 print(f"    MAE: {sensor_mae:.2f} µg/m³")
-print(f"    R²: {np.corrcoef(sensor_obs_values, sensor_est_values)[0,1]**2:.3f}")
+print(f"    R²: {np.corrcoef(sensor_obs_values, sensor_est_values)[0, 1]**2:.3f}")
 
 # Satellite fit
 sat_obs_values = []
@@ -2380,7 +2380,7 @@ sat_mae = np.mean(np.abs(sat_obs_values - sat_est_values))
 print(f"  Satellite fit:")
 print(f"    RMSE: {sat_rmse:.2f} µg/m³")
 print(f"    MAE: {sat_mae:.2f} µg/m³")
-print(f"    R²: {np.corrcoef(sat_obs_values, sat_est_values)[0,1]**2:.3f}")
+print(f"    R²: {np.corrcoef(sat_obs_values, sat_est_values)[0, 1]**2:.3f}")
 
 print()
 print(
@@ -3623,6 +3623,7 @@ print("\n" + "=" * 80)
 print("STRATEGY 2: Fine grid search around best coarse parameters")
 print("=" * 80)
 print()
+
 
 # Create fine grid around best parameters
 def create_fine_grid(best_params, factor=0.5):

@@ -1,57 +1,45 @@
-"""
-Merge
-Last Updated: Aug 28, 2025
-This script supplies the basic functions for merging
-xarray timeseries from both raster and point
-geometries.
-@author: markjcampmier
-"""
+"""Spatial and temporal merging utilities for raster and point xarray Datasets."""
 
-# Import Packages
+import gc
 import os
 import numpy as np
 import pandas as pd
 from scipy.spatial import cKDTree
 import xarray as xr
-import gc
 
 from pysamosa.data_calculations import india
 
 
-# Define Functions
-def set_phase(start, end, phase_num):
+def _set_phase(start, end, phase_num):
     """
     Function to make a time-series of labeled campaign collocation phases.
 
-    :param start: Beginning of collocation phase
-    :type start: pd.Timestamp
-    :param end: End of collocation phase
-    :type end: pd.Timestamp
-    :param phase_num: Collocation phase label, typically an integer
-    :type phase_num: int
-    :return: Time-indexed collocation phase dataframe
-    :rtype: pandas.DataFrame
+    Args:
+        start: Beginning of collocation phase.
+        end: End of collocation phase.
+        phase_num: Collocation phase label, typically an integer.
 
+    Returns:
+        Time-indexed collocation phase dataframe.
     """
     index = pd.Series(pd.date_range(start, end, freq="1h"), name="time")
     arr_phase_num = np.repeat(phase_num, len(index))
     return pd.DataFrame(arr_phase_num, index=index, columns=["collocation_phase"])
 
 
-def fixed_raster_merge(ds_points, ds_raster, keys="site", xy=None):
-    """
-    Function to extract and merge raster cells based on point data.
+def fixed_raster_merge(
+    ds_points: xr.Dataset,
+    ds_raster: xr.Dataset,
+    keys: str = "site",
+    xy: list | None = None,
+) -> xr.Dataset:
+    """Extract and merge raster cells at point locations.
 
-    :param ds_points: The xarray dataset containing the point data.
-    :type ds_points: xarray.Dataset
-    :param ds_raster: The xarray dataset containing the raster data.
-    :type ds_raster: xarray.Dataset
-    :param keys: The key to use for the point data merge.
-    :type keys: str
-    :param xy: The x and y coordinates to merge for single cell merges.
-    :type xy: list
-    :returns The merged dataset containing the raster cells for each point.
-    :rtype: xarray.Dataset
+    Args:
+        ds_points: The xarray dataset containing the point data.
+        ds_raster: The xarray dataset containing the raster data.
+        keys: The key to use for the point data merge.
+        xy: The x and y coordinates to merge for single cell merges.
     """
 
     cells = []
@@ -84,18 +72,19 @@ def fixed_raster_merge(ds_points, ds_raster, keys="site", xy=None):
     )  # xr.combine_nested(cells, concat_dim=keys)
 
 
-def find_nearest_point(df_coords_1, df_coords_2, tolerance=0.005):
+def _find_nearest_point(
+    df_coords_1: pd.DataFrame, df_coords_2: pd.DataFrame, tolerance: float = 0.005
+) -> pd.DataFrame:
     """
     Finds nearest collocation station based on tolerance between two points.
 
-    :param df_coords_1: Dataframe with latitude and longitude coordinates of regulatory sites
-    :type df_coords_1: pandas.DataFrame
-    :param df_coords_2:  with latitude and longitude coordinates of LCS sites
-    :type df_coords_2: pandas.DataFrame
-    :param tolerance:
-    :type tolerance: float
-    :return: df_coords_2: Matched DataFrame
-    :rtype df_coords_2: pandas.DataFrame
+    Args:
+        df_coords_1: Dataframe with latitude and longitude coordinates of regulatory sites.
+        df_coords_2: with latitude and longitude coordinates of LCS sites.
+        tolerance: .
+
+    Returns:
+        df_coords_2: Matched DataFrame.
     """
 
     tree = cKDTree(list(zip(df_coords_1["latitude"], df_coords_1["longitude"])))
@@ -116,18 +105,15 @@ def fixed_point_merge(ds_points, ds_merge, tolerance=0.005, keys="site", xy=None
     """
     Merge two datasets with fixed point geometries.
 
-    :param ds_points: fixed point dataset to merge on
-    :type: ds_points: xarray.DataArray
-    :param ds_merge: fixed point dataset to merge to
-    :type: ds_merge: xarray.DataArray
-    :param tolerance: float
-    :type: tolerance: float
-    :param keys: Dimension to use for merging, 'sensor' by default.
-    :type keys: str
-    :param xy: The x and y coordinates to merge for single cell merges.
-    :type xy: list
-    :return: ds_matched: The merged xarray.DataArray
-    :rtype: xarray.DataArray
+    Args:
+        ds_points: fixed point dataset to merge on.
+        ds_merge: fixed point dataset to merge to.
+        tolerance: float.
+        keys: Dimension to use for merging, 'sensor' by default.
+        xy: The x and y coordinates to merge for single cell merges.
+
+    Returns:
+        ds_matched: The merged xarray.DataArray.
     """
     if xy is not None:
         df_coords_points = pd.DataFrame(columns=["latitude", "longitude"])
@@ -147,7 +133,7 @@ def fixed_point_merge(ds_points, ds_merge, tolerance=0.005, keys="site", xy=None
         .dropna(subset=["latitude", "longitude"])
         .drop_duplicates()
     )
-    df_matched = find_nearest_point(
+    df_matched = _find_nearest_point(
         df_coords_merge, df_coords_points, tolerance=tolerance
     )
 
@@ -167,9 +153,12 @@ def get_chunk_spec(path, reference_chunks=None):
     """
     Get appropriate chunk specification for a dataset, with option to match reference chunks.
 
-    :param path: path to dataset
-    :param reference_chunks: optional reference chunks to match
-    :return: chunk specification or None
+    Args:
+        path: path to dataset.
+        reference_chunks: optional reference chunks to match.
+
+    Returns:
+        chunk specification or None.
     """
     try:
         with xr.open_dataset(path, engine="h5netcdf") as ds:
@@ -209,13 +198,13 @@ def open_and_merge(in_path, file_list):
     """
     Open and merge all datasets with consistent chunking.
 
-    :param in_path: path to flagged data
-    :param file_list: list of file names (without .nc extension)
-    :return: merged dataset
-    :rtype: xarray.Dataset
-    """
-    import gc
+    Args:
+        in_path: path to flagged data.
+        file_list: list of file names (without .nc extension).
 
+    Returns:
+        merged dataset.
+    """
     if not file_list:
         return xr.Dataset()
 
@@ -272,24 +261,18 @@ def open_and_merge(in_path, file_list):
 
 
 def open_and_merge_raster(in_path, ds_ref, raster_list, xy=None, keys="site"):
-    """
-    Open a list of files and merge all raster cells using incremental processing.
+    """Open a list of files and merge all raster cells using incremental processing.
 
-    :param in_path: path to flagged data
-    :type in_path: str
-    :param ds_ref: reference dataset
-    :type ds_ref: xarray.Dataset
-    :param raster_list: list of raster file names
-    :type raster_list: list
-    :param xy: The x and y coordinates to merge for single cell merges.
-    :type xy: list
-    :param keys: The key to use for the point data merge, 'sites' by default.
-    :type keys: str
-    :return: merged dataset
-    :rtype: xarray.Dataset
-    """
-    import gc
+    Args:
+        in_path: path to flagged data.
+        ds_ref: reference dataset.
+        raster_list: list of raster file names.
+        xy: The x and y coordinates to merge for single cell merges.
+        keys: The key to use for the point data merge, 'sites' by default.
 
+    Returns:
+        merged dataset.
+    """
     if not raster_list:
         return xr.Dataset()
 
@@ -335,20 +318,20 @@ def open_and_merge_raster(in_path, ds_ref, raster_list, xy=None, keys="site"):
     return result
 
 
-def make_phases(ds, dict_phases):
+def _make_phases(ds, dict_phases):
     """
     Pre-deployment collocation phase, here pre-deployment is set as IITD.
 
-    :param ds: PurpleAir dataset
-    :type ds: xarray.Dataset
-    :param dict_phases: Dictionary with start_date and end_date as keys
-    :type dict_phases: dict
-    :return: Phase dataset
-    :rtype: xarray.Dataset
+    Args:
+        ds: PurpleAir dataset.
+        dict_phases: Dictionary with start_date and end_date as keys.
+
+    Returns:
+        Phase dataset.
     """
     df_collocation_phase = pd.concat(
         [
-            set_phase(start, end, i + 1)
+            _set_phase(start, end, i + 1)
             for start, end, i in zip(
                 dict_phases["start"],
                 dict_phases["end"],
@@ -391,9 +374,11 @@ def merge_reference(in_path):
     """
     Memory-efficient version with consistent chunking to avoid performance warnings.
 
-    :param in_path: path to the data
-    :return: merged reference dataset
-    :rtype: xarray.Dataset
+    Args:
+        in_path: path to the data.
+
+    Returns:
+        merged reference dataset.
     """
 
     def dataset_exists(dataset_name):
@@ -494,7 +479,7 @@ def merge_reference(in_path):
 def merge_phases(in_path, dict_phases):
     # ds_pa = xr.open_dataset(os.path.join(in_path, "pa.nc"))
     ds_pa = xr.open_dataset(os.path.join(in_path, "pr.nc"), chunks={"time": 1000})
-    ds_phases = make_phases(ds_pa, dict_phases)
+    ds_phases = _make_phases(ds_pa, dict_phases)
     """
     ds_bam = fixed_point_merge(
         ds_phases,
@@ -505,14 +490,14 @@ def merge_phases(in_path, dict_phases):
     return ds_phases  # xr.merge([ds_phases, ds_bam])
 
 
-def make_collocation(ds):
+def _make_collocation(ds):
     """
     Makes collocation dataset based on known collocations with regulatory instruments.
 
-    :param ds: PurpleAir dataset
-    :type ds: xarray.Dataset
     :return ds_collocation: Collocation dataset
-    :rtype: xarray.Dataset
+
+    Args:
+        ds: PurpleAir dataset.
     """
     ds_collocation = ds.where(ds.settlement == "Delhi", drop=True)
     ds_collocation = ds_collocation.drop(
@@ -602,7 +587,7 @@ def merge_collocation(in_path):
         ]
     )
 
-    ds_collocation = make_collocation(ds_pa)
+    ds_collocation = _make_collocation(ds_pa)
     ds_reference = open_and_merge(in_path, ["bam", "reg"])
 
     ds_collocation, ds_collocation_ref = fixed_point_merge(ds_collocation, ds_reference)
@@ -618,7 +603,7 @@ def merge_collocation(in_path):
     return xr.merge([ds_collocation, ds_collocation_ref, ds_rasters], compat="override")
 
 
-def make_deployment(ds):
+def _make_deployment(ds):
     """
     Makes campaign deployment dataset with proper handling of chunked data.
     """
@@ -781,8 +766,6 @@ def merge_deployment(in_path):
     """
     Memory-efficient deployment merge with proper string handling for NetCDF export.
     """
-    import os
-    import gc
 
     def dataset_exists(dataset_name):
         return os.path.exists(os.path.join(in_path, f"{dataset_name}.nc"))
@@ -792,7 +775,7 @@ def merge_deployment(in_path):
     ds = xr.open_dataset(os.path.join(in_path, "pr.nc"), chunks={"time": 1000})
 
     print("Processing deployment dataset...")
-    ds = make_deployment(ds)
+    ds = _make_deployment(ds)
 
     # Define datasets to merge
     datasets_to_merge = ["era", "martin", "ghsl", "rwi"]  # "tropomi", "gee"
@@ -842,7 +825,7 @@ def merge_deployment(in_path):
     return ds
 
 
-def make_history(ds):
+def _make_history(ds):
     """
     Memory-efficient version using xarray operations without pandas conversion.
     """
@@ -975,7 +958,7 @@ def merge_history(in_path):
     )
 
     print("Processing history...")
-    ds_history = make_history(ds_pa)
+    ds_history = _make_history(ds_pa)
 
     # Compute the final result efficiently
     print("Computing final result...")

@@ -1,21 +1,19 @@
-"""
-QR Pivot Functions
-Last Updated: April 30, 2025
-This script contains the QR Pivoting (QR) method for selecting optimal sensor locations.
-QR refers to Q (Orthogonal) and R or U (Upper Triangle) matrices
-arising from the eponymous QR (or QU) decomposition.
-@author: markjcampmier
-"""
-# Import Packages
+"""QR pivoting method for optimal sensor location selection."""
+
 import numpy as np
 from scipy.linalg import qr
 
-# Define Functions
-
 
 def find_optimal_sensors(pod_results, n_modes=3, n_sensors=None):
-    """
-    Find optimal sensor locations using QR pivoting on POD modes.
+    """Find optimal sensor locations using QR pivoting on POD spatial modes.
+
+    Args:
+        pod_results: Dictionary from :func:`perform_gappy_pod_on_imf` containing 'eigenvectors'.
+        n_modes: Number of leading POD modes to use for the QR decomposition.
+        n_sensors: Maximum number of sensors to return; returns all pivots if None.
+
+    Returns:
+        Ordered list of station indices ranked by importance.
     """
     # Extract eigenvectors (spatial modes)
     eigenvectors = pod_results["eigenvectors"][:, :n_modes]
@@ -35,8 +33,14 @@ def find_optimal_sensors(pod_results, n_modes=3, n_sensors=None):
 
 
 def interpret_sensor_ranking(pod_results, sensor_ranking):
-    """
-    Interpret the sensor ranking in terms of site IDs and importance.
+    """Translate a sensor index ranking into (site_id, importance) pairs.
+
+    Args:
+        pod_results: Dictionary from :func:`perform_gappy_pod_on_imf`.
+        sensor_ranking: Ordered list of station indices (e.g. from :func:`find_optimal_sensors`).
+
+    Returns:
+        List of (site_id, importance_percent) tuples in ranking order.
     """
     site_ids = pod_results["site_ids"]
     explained_var = pod_results["explained_variance"]
@@ -68,8 +72,15 @@ def interpret_sensor_ranking(pod_results, sensor_ranking):
 
 
 def optimize_sensor_network_for_imf(all_pod_results, imf_idx, n_modes=3):
-    """
-    Optimize sensor network for a specific IMF level.
+    """Print and return the optimal sensor network for a given IMF level.
+
+    Args:
+        all_pod_results: List of POD result dicts, one per IMF level.
+        imf_idx: Index of the IMF level to optimise.
+        n_modes: Number of leading POD modes to use.
+
+    Returns:
+        Ranked list of (site_id, importance_percent) tuples.
     """
     pod_result = all_pod_results[imf_idx]
     sensor_ranking = find_optimal_sensors(pod_result, n_modes=n_modes)

@@ -1,184 +1,164 @@
-"""
-Evaluation Metrics
-Last Updated: June 23, 2024
-This script supplies the basic functions for evaluating relationships
-between data sets. Especially useful for regression analysis.
-@author: markjcampmier
-"""
-# Import Packages
+"""Evaluation metrics for regression and classification model assessment."""
+
 import numpy as np
 import pandas as pd
-from sklearn.metrics import (r2_score,
-                             mean_squared_error,
-                             mean_absolute_error,
-                             balanced_accuracy_score)
+from sklearn.metrics import (
+    r2_score,
+    mean_squared_error,
+    mean_absolute_error,
+    balanced_accuracy_score,
+)
 
 
-# Define Functions
-def adj_r2(y_true, y_hat, k):
-    """
-    This function calculates the adjusted R^2 score.
+def adj_r2(y_true: np.ndarray, y_hat: np.ndarray, k: int) -> float:
+    """Calculate the adjusted R² score.
 
-    :param y_true: The true values of the target variable.
-    :type y_true: numpy.array
-    :param y_hat: The predicted values of the target variable.
-    :type y_hat: numpy.array
-    :param k: The number of features in the model.
-    :type k: int
-    :returns The adjusted R^2 score.
-    :rtype: float
+    Args:
+        y_true: True values.
+        y_hat: Predicted values.
+        k: Number of features in the model.
+
+    Returns:
+        Adjusted R² score.
     """
     r2 = r2_score(y_true, y_hat)
     n = len(y_true)
     return 1 - ((1 - r2) * (n - 1) / (n - k - 1))
 
 
-def mae(y_true, y_hat):
-    """
-    This function calculates the mean absolute error.
+def mae(y_true: np.ndarray, y_hat: np.ndarray) -> float:
+    """Calculate the mean absolute error.
 
-    :param y_true: The true values of the target variable.
-    :type y_true: numpy.array
-    :param y_hat: The predicted values of the target variable.
-    :type y_hat: numpy.array
-    :return: The mean absolute error.
-    :rtype: float
+    Args:
+        y_true: True values.
+        y_hat: Predicted values.
+
+    Returns:
+        Mean absolute error.
     """
     return mean_absolute_error(y_true, y_hat)
 
 
-def nmae(y_true, y_hat):
-    """
-    This function calculates the normalized mean absolute error.
+def nmae(y_true: np.ndarray, y_hat: np.ndarray) -> float:
+    """Calculate the normalized mean absolute error [%].
 
-    :param y_true: The true values of the target variable.
-    :type y_true: numpy.array
-    :param y_hat: The predicted values of the target variable.
-    :type y_hat: numpy.array
-    :return: The normalized mean absolute error.
-    :rtype: float
+    Args:
+        y_true: True values.
+        y_hat: Predicted values.
+
+    Returns:
+        Normalized mean absolute error.
     """
     return (mae(y_true, y_hat) / np.mean(y_true)) * 100
 
 
-def rmse(y_true, y_hat):
+def rmse(y_true: np.ndarray, y_hat: np.ndarray) -> float:
+    """Calculate the root-mean-square error.
+
+    Args:
+        y_true: True values.
+        y_hat: Predicted values.
+
+    Returns:
+        Root-mean-square error.
     """
-    This function calculates the root-mean-square error.
-
-    :param y_true: The true values of the target variable.
-    :type y_true: numpy.array
-    :param y_hat: The predicted values of the target variable.
-    :type y_hat: numpy.array
-    :return: The root-mean-square error.
-    :rtype: float
-    """
-    mse = mean_squared_error(y_true, y_hat)
-    return mse ** 0.5
+    return mean_squared_error(y_true, y_hat) ** 0.5
 
 
-def nrmse(y_true, y_hat):
-    """
-    This function calculates the normalized root-mean-square error.
+def nrmse(y_true: np.ndarray, y_hat: np.ndarray) -> float:
+    """Calculate the normalized root-mean-square error [%].
 
-    :param y_true: The true values of the target variable.
-    :type y_true: numpy.array
-    :param y_hat: The predicted values of the target variable.
-    :type y_hat: numpy.array
-    :return: The normalized root-mean-square error.
-    :rtype: float
+    Args:
+        y_true: True values.
+        y_hat: Predicted values.
+
+    Returns:
+        Normalized root-mean-square error.
     """
     return (rmse(y_true, y_hat) / np.mean(y_true)) * 100
 
 
-def mbe(y_true, y_hat):
-    """
-    This function calculates the mean bias error.
+def mbe(y_true: np.ndarray, y_hat: np.ndarray) -> float:
+    """Calculate the mean bias error.
 
-    :param y_true: The true values of the target variable.
-    :type y_true: numpy.array
-    :param y_hat: The predicted values of the target variable.
-    :type y_hat: numpy.array
-    :return: The mean bias errorr.
-    :rtype: float
+    Args:
+        y_true: True values.
+        y_hat: Predicted values.
+
+    Returns:
+        Mean bias error.
     """
     return np.mean(y_true - y_hat)
 
 
-def nmbe(y_true, y_hat):
-    """
-    This function calculates the normalized mean bias error.
+def nmbe(y_true: np.ndarray, y_hat: np.ndarray) -> float:
+    """Calculate the normalized mean bias error [%].
 
-    :param y_true: The true values of the target variable.
-    :type y_true: numpy.array
-    :param y_hat: The predicted values of the target variable.
-    :type y_hat: numpy.array
-    :return: The normalized mean bias errorr.
-    :rtype: float
+    Args:
+        y_true: True values.
+        y_hat: Predicted values.
+
+    Returns:
+        Normalized mean bias error.
     """
     return (mbe(y_true, y_hat) / np.mean(y_true)) * 100
 
 
-def bas(y_true, y_hat):
-    """
-    This function calculates the balanced accuracy score.
+def bas(y_true: np.ndarray, y_hat: np.ndarray) -> float:
+    """Calculate the balanced accuracy score.
 
-    :param y_true: The true values of the target variable.
-    :type y_true: numpy.array
-    :param y_hat: The predicted values of the target variable.
-    :type y_hat: numpy.array
-    :return: The balanced accuracy score.
-    :rtype: float
+    Args:
+        y_true: True class labels.
+        y_hat: Predicted class labels.
+
+    Returns:
+        Balanced accuracy score.
     """
     return balanced_accuracy_score(y_true, y_hat)
 
 
-def count_sensors(group):
-    """
-    Counts the number of sensors in the group.
+def count_sensors(group: pd.Series) -> int:
+    """Count the number of sensors in a group that report at least 168 observations.
 
-    :param group: A grouping variable to count the sensors in.
-    :type group: pandas.Series
-    :return sensors_reporting: Sensors within a given group.
-    :rtype sensors_reporting: int
+    Args:
+        group: Series of sensor identifiers.
+
+    Returns:
+        Count of qualifying sensors.
     """
     sensors_reporting = 0
     for sensor in group.unique():
-        group_sensor = group.loc[group == sensor]
-        if len(group_sensor) >= 168:
+        if len(group.loc[group == sensor]) >= 168:
             sensors_reporting += 1
     return sensors_reporting
 
 
-def calculate_r2(group):
-    """
-    Calculates the R^2 score for a stratified group.
+def calculate_r2(group: pd.DataFrame) -> float:
+    """Calculate R² for a stratified group (requires columns 'a' and 'b').
 
-    :param group: A grouping variable to count the sensors in.
-    :type group: pandas.Series
-    :return: The R^2 score for the group.
-    :rtype: float
+    Args:
+        group: DataFrame with at least 168 rows and columns 'a' and 'b'.
+
+    Returns:
+        R² score, or -1 if insufficient data.
     """
     if len(group) < 168:
         return -1
-    else:
-        return r2_score(group['a'], group['b'])
+    return r2_score(group["a"], group["b"])
 
 
-def bias_matrix(df):
-    """
-    Calculates the matrix-wise normalized mean bias error.
+def bias_matrix(df: pd.DataFrame) -> pd.DataFrame:
+    """Calculate a matrix of normalized mean bias errors between all column pairs.
 
-    :param df: A grouping variable to count the sensors in.
-    :type df: pandas.DataFrame
-    :return matrix: The normalized mean bias for a matrix of groups.
-    :rtype matrix: pandas.DataFrame
+    Args:
+        df: DataFrame whose columns represent sensors or sites.
+
+    Returns:
+        Square matrix of NMBE values.
     """
     columns = df.columns
     matrix = pd.DataFrame(index=columns, columns=columns)
-
     for i in columns:
         for j in columns:
-            bias = nmbe(df.loc[:, i], df.loc[:, j])
-            matrix.loc[i, j] = bias
-
+            matrix.loc[i, j] = nmbe(df.loc[:, i], df.loc[:, j])
     return matrix

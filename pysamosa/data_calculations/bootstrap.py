@@ -1,9 +1,4 @@
-"""
-Bootstrap Methods
-Last Updated: May 9, 2024
-Runs bootstrapping scenarios for data experimentation with JIT.
-@author: markjcampmier
-"""
+"""JIT-accelerated bootstrap sampling utilities for PM2.5 data experimentation."""
 
 import numpy as np
 import pandas as pd
@@ -18,31 +13,31 @@ def drop_nan(arr):
         mask[i] = not np.isnan(arr[i])
     return arr[mask]
 
+
 @njit
 def apply_mean(arr, axis):
-    """
-    JIT-compatible averaging function
+    """JIT-compatible averaging along a given axis.
 
     Args:
-        arr (np.array): Array to be averaged
-        axis (int): Axis to be averaged
+        arr: Array to be averaged.
+        axis: Axis to average along.
 
     Returns:
-        (float): Averaged value
+        Averaged value.
     """
     return arr.sum(axis=axis) / arr.shape[axis]
 
 
 @njit
 def block_agg_np(array, block_size):
-    """
-    JIT-compatible block aggregation function
+    """JIT-compatible block aggregation (mean per block).
 
     Args:
-        array (np.array): Array to be aggregated
-        block_size (int): Block size
+        array: Array to be aggregated.
+        block_size: Number of elements per block.
+
     Returns:
-        (np.array): Chunk aggregated array
+        Array of per-block means.
     """
     array_chunks = np.array_split(array, len(array) // block_size)
     return np.array([np.mean(chunk) for chunk in array_chunks])
@@ -69,9 +64,7 @@ def shannon_entropy(dist):
     if n_bins <= 2:
         n_bins = 3
 
-    bins = np.linspace(bin_min,
-                       bin_max,
-                       n_bins)
+    bins = np.linspace(bin_min, bin_max, n_bins)
 
     pk, _ = np.histogram(dist, bins=bins)
     pk = np.divide(pk, np.sum(pk))
@@ -89,9 +82,7 @@ def relative_entropy(p_dist, q_dist):
     if n_bins <= 2:
         n_bins = 3
 
-    bins = np.linspace(bin_min,
-                       bin_max,
-                       n_bins)
+    bins = np.linspace(bin_min, bin_max, n_bins)
 
     pk, _ = np.histogram(p_dist, bins=bins)
     pk = np.divide(pk, np.sum(pk))
@@ -101,26 +92,22 @@ def relative_entropy(p_dist, q_dist):
     qk = np.add(qk, 0.0000000000001)
 
     filtered_indices = pk != 0
-    return np.nansum(pk[filtered_indices] * np.log(pk[filtered_indices] / qk[filtered_indices]))
+    return np.nansum(
+        pk[filtered_indices] * np.log(pk[filtered_indices] / qk[filtered_indices])
+    )
 
 
 @jit(nopython=True)
 def sampler(obs, n, p):
-    """
-    Sampler function to generate a sample of the given observations.
-
-    The function generates a sample of size 'n' from the specified observations 'obs'
-    and computes the p-th percentile for each sample. This process is then
-    repeated a total of 1000 times.
+    """Draw 1000 bootstrap samples of size *n* and return their *p*-th percentile.
 
     Args:
-        obs (array-like): The observations from which to generate samples.
-        n (int): The number of samples to generate.
-        p (float): The percentile to compute for each sample.
+        obs: Observations to sample from.
+        n: Sample size.
+        p: Percentile to compute for each sample (0–100).
 
     Returns:
-        array_like: A numpy array of shape (1000,), representing the computed
-        percentiles of the samples.
+        Array of 1000 percentile values.
     """
     sample = np.empty(1000)
     for i in range(0, 1000):
@@ -131,27 +118,23 @@ def sampler(obs, n, p):
 
 @jit(nopython=True)
 def drift_sampler(obs, n, p, dx):
-    """
-    Generates a sample array from a given observation where each observation is subjected to noise and drift.
-
-    Generates noisy observations and then computing the `p` percentile of those chosen elements.
-    The noise applied to observations has a mean of 0 and a drift component that increases
-    linearly with the observed value, scaled by factor `dx`.
+    """Bootstrap sampler with linearly increasing noise drift.
 
     Args:
-        obs (numpy.ndarray): The input observation to be sampled. A 1D `numpy` array.
-        n (int): The number of elements to choose randomly without replacement for each sample.
-        p (float): The percentile to calculate on the selected elements for each sample.
-        dx (float): The scaling factor for the drift component in the noise applied to observations.
+        obs: 1-D observation array to sample from.
+        n: Number of elements chosen without replacement per sample.
+        p: Percentile to compute for each sample.
+        dx: Drift scaling factor; noise standard deviation grows by *dx* per step.
 
     Returns:
-        numpy.ndarray: A `numpy` array of size 1000, each element being the `p` percentile of `n` randomly chosen
-        elements from the noisy observations.
+        Array of 1000 percentile values from noisy observations.
     """
     sample = np.zeros((1000,))
     for i in range(0, 1000):
         x = 0
-        noisy_obs = np.zeros(len(obs), )
+        noisy_obs = np.zeros(
+            len(obs),
+        )
         for j in range(0, len(obs)):
             x += dx
             noisy_obs[j] = np.random.normal(0, x) * obs[j] + obs[j]
@@ -162,26 +145,18 @@ def drift_sampler(obs, n, p, dx):
 
 @jit(nopython=True)
 def replacement_sampler(obs, n, step, p, nl1=3, nl2=0.05):
-    """
-    Generates a random noise-added sample from the given observations,
-    calculate the p-th percentile of these new observations to form a sample,
-    and repeats this process to create an array of such percentiles.
+    """Bootstrap sampler with a two-phase noise model that changes at *step*.
 
     Args:
-        obs (np.ndarray): A numpy array of observations from which to draw samples.
-        n (int): The size of the sample to draw.
-        step (int): The point at which the noise level changes within the observation array.
-        p (int or float): The percentile value to compute, which must be between 0 and 100 inclusive.
-        nl1 (float, optional): The standard deviation of the normal distribution to draw noise from for
-          observation indices less than 'step'. Defaults to 0.6.
-        nl2 (float, optional): The standard deviation of the normal distribution to draw noise from for
-          observation indices greater or equal to 'step'. Defaults to 0.
+        obs: Observations to sample from.
+        n: Sample size drawn per bootstrap iteration.
+        step: Index at which noise level switches from *nl1* to *nl2*.
+        p: Percentile to compute (0–100).
+        nl1: Noise scaling coefficient for indices < *step*.
+        nl2: Noise scaling coefficient for indices >= *step*.
 
     Returns:
-        np.ndarray: A numpy array of size 1000 containing the percentiles of noise-added observations.
-
-    Notes:
-        The function is decorated with numba's jit decorator with nopython mode for performance improvement.
+        Array of 1000 percentile values from noise-added observations.
     """
     sample = np.zeros((1000,))
     for i in range(0, 1000):
@@ -199,28 +174,21 @@ def replacement_sampler(obs, n, step, p, nl1=3, nl2=0.05):
 
 @jit(nopython=True)
 def short_sampler(obs, n, p):
-    """
-    Generates a sample of a given size by randomly selecting sub-segments of the input
-    observation, determining a percentile of each segment, and composing the output sample
-    from these percentiles.
+    """Bootstrap sampler using contiguous sub-segments of length *n*.
 
     Args:
-        obs (np.ndarray): A numpy array containing the observations.
-        n (int): The size of samples to be drawn from 'obs'. Corresponds to the length of
-            each sub-segment that is randomly selected from obs.
-        p (int or float): The percentile to extract from each sub-segment of 'obs'. This
-            percentile measurement of the selected sub-segment forms one element of the
-            returned sample.
+        obs: Observation array.
+        n: Sub-segment length.
+        p: Percentile to compute from each sub-segment.
 
     Returns:
-        np.ndarray: A numpy array of size 1000 consisting of the 'p'-th percentile of 'n'
-            sized random sub-segments from the 'obs' array.
-        """
+        Array of 1000 sub-segment percentile values.
+    """
     sample = np.zeros((1000,))
     ind = np.arange(0, len(obs))
     for i in range(0, 1000):
         step = np.random.choice(ind[:-n])
-        step_obs = obs[step:step + n]
+        step_obs = obs[step : step + n]
         dist = np.random.choice(step_obs, size=n, replace=False)
         sample[i] = np.percentile(dist, p)
     return sample
@@ -228,22 +196,16 @@ def short_sampler(obs, n, p):
 
 @jit(nopython=True)
 def stratified_sampler(obs, ids, n, p):
-    """Performs a stratified sampling on data, and then calculates the percentile.
-
-    This function, optimized with Numba's jit decorator for speed, performs stratified
-    sampling on the input data and then calculates and returns percentiles.
+    """Stratified bootstrap sampler: draw *n* ids with replacement and compute the *p*-th percentile.
 
     Args:
-        obs (numpy.array): A 2D numpy array containing the data observations.
-        ids (numpy.array): A 1D numpy array containing the ID values of the observations.
-        n (int): The number of sampling to perform on the 'ids' array
-        p (int or float): The percentile to extract from each sub-segment of 'obs'. This
-                          percentile measurement of the selected sub-segment forms one element of the
-                          returned sample.
+        obs: 2-D observation array (rows = ids, cols = time steps).
+        ids: 1-D array of stratum ids to sample from.
+        n: Number of ids to sample per bootstrap iteration.
+        p: Percentile to compute.
 
     Returns:
-        numpy.array: A numpy array of size 1000 with the calculated percentiles of the
-        stratified sample.
+        Array of 1000 stratified-sample percentile values.
     """
     sample = np.zeros((1000,))
     for i in range(0, 1000):
@@ -255,25 +217,16 @@ def stratified_sampler(obs, ids, n, p):
 
 @jit(nopython=True)
 def multi_block_sampler(obs, ids, n, p):
-    """
-    Generate a distribution sample based on slicing observation data into multiple blocks.
-
-    This function performs multi-block sampling on given observation data. The function
-    computes the number of blocks, then for each block, randomly selects a position
-    from the observation ids, slices a block of data from that position, and
-    calculates a percentile of that sliced block. This process is repeated 1000 times
-    to generate a distribution sample.
+    """Multi-block bootstrap: splice non-overlapping blocks and compute the *p*-th percentile.
 
     Args:
-        obs (np.array): 1-D array of observation data.
-        ids (np.array): 1-D array containing indices of the observation data.
-        n (int): The size of the block to be sliced from the observation data.
-        p (float): The percentile of the sliced block data to be calculated and
-            added to the sample.
+        obs: 1-D observation array.
+        ids: 1-D index array for *obs*.
+        n: Block size sliced from each random start position.
+        p: Percentile to compute from each spliced distribution.
 
     Returns:
-        np.array: A 1-Dimensional array of size 1000 containing distribution
-            sample
+        Array of 1000 distribution-sample percentile values.
     """
     sample = np.zeros((1000,))
     nblocks = np.floor(len(obs) / (len(obs) - n))
@@ -281,52 +234,61 @@ def multi_block_sampler(obs, ids, n, p):
         dist = []
         for block in nblocks:
             start = np.random.choice(ids, size=1, replace=False)
-            dist.append(obs[start:start + (len(obs) - n)])
-            ids = ids[:start] + ids[start + (len(obs) - n):]
+            dist.append(obs[start : start + (len(obs) - n)])
+            ids = ids[:start] + ids[start + (len(obs) - n) :]
         sample[i] = np.percentile(dist, p)
     return sample
 
 
 def find_continuous(df, gap_length=0):
-    """
-        This function identifies and tags continuous groups with non-NaN values in the given DataFrame.
-    It allows for gaps of a defined length, and assigns NaN group number for NaN values in the DataFrame.
+    """Identify and tag continuous non-NaN groups in a DataFrame with 'A' and 'B' columns.
 
     Args:
-        df (pandas.DataFrame): The input DataFrame with 'A' and 'B' columns that needs to be
-                               analysed for continuous non-NaN segments.
-        gap_length (int, optional): The maximum gap length allowed within a continuous non-NaN segment.
-                                    Defaults to 0, i.e., no gap allowed.
+        df: DataFrame with 'A' and 'B' measurement columns.
+        gap_length: Maximum gap length (in rows) still considered part of a continuous segment.
 
     Returns:
-        df (pandas.DataFrame): The input DataFrame enriched with a new 'group' column storing
-                               the group number for each non-NaN segment.
-        df_group (pandas.DataFrame): A DataFrame where the index are the group numbers and
-                                    the values are the count of values belonging to each group.
+        Tuple of (annotated DataFrame with 'group' column, group-count DataFrame).
     """
-    df['group'] = (
-            (df['A'].isnull() & df['B'].isnull()) != (df['A'].shift().isnull() & df['B'].shift().isnull())).cumsum()
+    df["group"] = (
+        (df["A"].isnull() & df["B"].isnull())
+        != (df["A"].shift().isnull() & df["B"].shift().isnull())
+    ).cumsum()
 
     # count consecutive NaN groups
-    df_na_n = pd.DataFrame(df[df['A'].isnull() & df['B'].isnull()]['group'].value_counts()).reset_index()
-    df_na_n.columns = ['group', 'count']
+    df_na_n = pd.DataFrame(
+        df[df["A"].isnull() & df["B"].isnull()]["group"].value_counts()
+    ).reset_index()
+    df_na_n.columns = ["group", "count"]
 
     # find group numbers of groups which are NOT 'small' gaps
-    not_gaps = df_na_n[df_na_n['count'] > gap_length]['group'].values
+    not_gaps = df_na_n[df_na_n["count"] > gap_length]["group"].values
 
     # recompute the groups after removing 'small' gaps
-    df['group'] = np.where(df['group'].isin(not_gaps), np.nan, df['group'].ffill().bfill())
-    df['group'] = (
-            (df['A'].isnull() & df['B'].isnull()) != (df['A'].shift().isnull() & df['B'].shift().isnull())).cumsum()
+    df["group"] = np.where(
+        df["group"].isin(not_gaps), np.nan, df["group"].ffill().bfill()
+    )
+    df["group"] = (
+        (df["A"].isnull() & df["B"].isnull())
+        != (df["A"].shift().isnull() & df["B"].shift().isnull())
+    ).cumsum()
 
     # Assign NaN to the group number of the NaN values
-    df.loc[df['A'].isnull() & df['B'].isnull(), 'group'] = np.nan
+    df.loc[df["A"].isnull() & df["B"].isnull(), "group"] = np.nan
 
     # Ignore NaN groups while counting
     df_group = pd.DataFrame.from_dict(
-        {k: v for k, v in df[df['group'].notna()].groupby('group')['group'].count().items()},
-        orient='index', columns=['group_count'])
-    df_group = df_group.sort_values(by='group_count', ascending=False)
+        {
+            k: v
+            for k, v in df[df["group"].notna()]
+            .groupby("group")["group"]
+            .count()
+            .items()
+        },
+        orient="index",
+        columns=["group_count"],
+    )
+    df_group = df_group.sort_values(by="group_count", ascending=False)
 
     return df, df_group
 
@@ -364,7 +326,9 @@ def agg_sampler(obs, agg_n, scale=0.1, agg_method=0):
             sample[i, :] = np.percentile(block_agg_np(s_obs, agg_n), p)
 
         elif agg_method == 2:
-            sample[i, :] = np.percentile(block_agg_np2(np.vstack((a_obs, b_obs)), agg_n), p)
+            sample[i, :] = np.percentile(
+                block_agg_np2(np.vstack((a_obs, b_obs)), agg_n), p
+            )
 
     return sample
 
@@ -388,22 +352,15 @@ def get_agg_sampler(arr_cont):
 
 @njit
 def noisy_sampler(obs, n, noise_level=0.1):
-    """
-    Noisy sampler function to generate a sample of the given observations but with some noise.
-
-    The function generates a sample of size 'n' from the specified observations 'obs',
-    after adding specific noise data. After noise addition, the p-th percentile
-    for each sample is computed. This process is then repeated a total of 1000 times.
+    """Bootstrap sampler that adds channel noise before drawing a sample of size *n*.
 
     Args:
-        obs (array-like): The observations from which to generate samples.
-        noise_level (float): The standard deviation of the Normal distribution
-            from which to draw the noise.
-        n (int): The number of samples to generate.
+        obs: Observations to sample from.
+        n: Sample size drawn per bootstrap iteration.
+        noise_level: Noise standard deviation as a fraction of the observation value.
 
     Returns:
-        array-like: A numpy array of shape (1000,), representing the computed percentiles
-        of the samples with the added noise.
+        Array of shape (99, 1000) — all percentiles for 1000 bootstrap draws.
     """
     percentile = np.arange(1, 100, 1)
     sample = np.empty((len(percentile), 1000))
@@ -430,21 +387,13 @@ def noisy_sampler(obs, n, noise_level=0.1):
 
 @njit
 def get_sampler_bounds(arr_cont):
-    """
-    Calculate the percentile bounds of a data set divided by a group index.
+    """Compute noisy bootstrap percentile bounds across completeness levels (1%–99%).
 
     Args:
-        arr_cont (array): The input array.
+        arr_cont: 1-D continuous observation array.
 
     Returns:
-        Tuple[DataFrame, DataFrame, DataFrame]: A tuple containing three pandas DataFrame objects.
-            - The first DataFrame contains the lower percentile bounds, with percentile value as index
-                and completeness as columns.
-            - The second DataFrame contains the median percentile bounds, with percentile value as index
-                and completeness as columns.
-            - The third DataFrame contains the upper percentile bounds, with percentile value as index
-                and completeness as columns.
-
+        Array of shape (99, 99, 1000) — percentiles × completeness × bootstrap draws.
     """
     completeness = np.round(np.arange(0.01, 1, 0.01), 2)
     percentile = np.arange(1, 100, 1)
@@ -461,24 +410,16 @@ def get_sampler_bounds(arr_cont):
 
 @njit
 def block_sampler(obs, ids, n, noise_level=0.1):
-    """
-    Generate a distribution sample based on slicing observation data into blocks.
-
-    This function performs block sampling on given observation data. The function
-    randomly selects a position from the observation data, slices a block of data
-    from that position, and calculates a percentile of that sliced block. This
-    process is repeated 1000 times to generate a distribution sample.
+    """Block bootstrap sampler with channel noise: slice a contiguous block of length *n* and compute all percentiles.
 
     Args:
-        obs (np.array): 1-D array of observation data.
-        ids (np.array): 1-D array containing indices of the observation data.
-        n (int): The size of the block to be sliced from the observation data.
-        noise_level (float): The standard deviation of the Normal distribution
-            from which to draw the noise.
+        obs: 1-D observation array.
+        ids: 1-D index array for *obs*.
+        n: Block length.
+        noise_level: Noise fraction applied to each observation before sampling.
 
     Returns:
-        np.array: A 1-Dimensional array of size 1000 containing distribution
-            sample.
+        Array of shape (99, 1000) — all percentiles for 1000 bootstrap draws.
     """
     percentile = np.arange(1, 100, 1)
     sample = np.empty((len(percentile), 1000))
@@ -497,28 +438,20 @@ def block_sampler(obs, ids, n, noise_level=0.1):
             b_obs[j] += np.random.normal(loc=0, scale=var)
         noisy_obs = 0.5 * (a_obs + b_obs)
         start = np.random.choice(ids[:-n], size=1, replace=False)[0]
-        dist = noisy_obs[start:start + n]
+        dist = noisy_obs[start : start + n]
         sample[:, i] = np.percentile(dist, percentile)
     return sample
 
 
 @njit
 def get_block_sampler_bounds(arr_cont):
-    """
-    Calculate the percentile bounds of a data set divided by a group index.
+    """Compute block-bootstrap percentile bounds across completeness levels (1%–99%).
 
     Args:
-        arr_cont (array): The input DataFrame. Should contain a 'mu' column.
+        arr_cont: 1-D continuous observation array.
 
     Returns:
-        Tuple[DataFrame, DataFrame, DataFrame]: A tuple containing three pandas DataFrame objects.
-            - The first DataFrame contains the lower percentile bounds, with percentile value as index
-                and completeness as columns.
-            - The second DataFrame contains the median percentile bounds, with percentile value as index
-                and completeness as columns.
-            - The third DataFrame contains the upper percentile bounds, with percentile value as index
-                and completeness as columns.
-
+        Array of shape (99, 99, 1000) — percentiles × completeness × bootstrap draws.
     """
 
     arr_ids = np.arange(0, len(arr_cont))
@@ -546,7 +479,9 @@ def tradeoff_sampler(obs, noise_level, thresh):
             a_obs = obs.copy()
             b_obs = obs.copy()
             for j, _ in enumerate(obs):
-                b_obs[j] = b_obs[j] + np.abs(np.random.normal(loc=0, scale=b_obs[j] * noise_level))
+                b_obs[j] = b_obs[j] + np.abs(
+                    np.random.normal(loc=0, scale=b_obs[j] * noise_level)
+                )
             noisy_obs = 0.5 * (a_obs + b_obs)
             disagree = (2 * np.abs(a_obs - b_obs)) / (a_obs + b_obs)
             noisy_obs = np.where(disagree < thresh, noisy_obs, np.nan)
@@ -569,8 +504,8 @@ def get_tradeoff_sampler(arr_cont):
 
 
 @njit
-def agreement_sampler(obs, n, loc=0, scale=0.1, percentile='all', thresh=None):
-    if percentile == 'all':
+def agreement_sampler(obs, n, loc=0, scale=0.1, percentile="all", thresh=None):
+    if percentile == "all":
         percentile = np.arange(1, 100, 1)
     sample = np.empty((len(percentile), 1000))
     for i in range(0, 1000):
@@ -586,7 +521,9 @@ def agreement_sampler(obs, n, loc=0, scale=0.1, percentile='all', thresh=None):
             elif (loc > 0) & (loc < 1) & (scale == 0):
                 a_obs[j] = a_obs[j] * loc + a_obs[j]
             elif (loc > 0) & (loc < 1) & (scale > 0) & (scale < 1):
-                a_obs[j] = np.random.normal(loc=a_obs[j] + a_obs[j] * loc, scale=a_obs[j] * scale)
+                a_obs[j] = np.random.normal(
+                    loc=a_obs[j] + a_obs[j] * loc, scale=a_obs[j] * scale
+                )
                 b_obs[j] = np.random.normal(loc=b_obs[j], scale=b_obs[j] * scale)
             elif (loc > 0) & (loc < 1) & (scale > 1):
                 a_obs[j] = np.random.normal(loc=a_obs[j] + a_obs[j] * loc, scale=scale)
@@ -618,8 +555,9 @@ def get_agreement_wander(arr_cont):
 
     arr_sample = np.empty((len(percentile), len(agreement_level), 1000))
     for j, s in enumerate(agreement_level):
-        arr_sample[:, j, :] = agreement_sampler(arr_cont, len(arr_cont) - 1,
-                                                loc=0, scale=agreement_level[j])
+        arr_sample[:, j, :] = agreement_sampler(
+            arr_cont, len(arr_cont) - 1, loc=0, scale=agreement_level[j]
+        )
 
     return arr_sample
 
@@ -633,29 +571,22 @@ def get_agreement_fixed(arr_cont):
 
     for i, p in enumerate(percentile):
         for j, s in enumerate(agreement_level):
-            arr_sample[i, j, :] = agreement_sampler(arr_cont, len(arr_cont) - 1, p,
-                                                    loc=agreement_level[j], scale=0.1)
+            arr_sample[i, j, :] = agreement_sampler(
+                arr_cont, len(arr_cont) - 1, p, loc=agreement_level[j], scale=0.1
+            )
 
     return arr_sample
 
 
 @njit
 def get_joint_sampler(arr_cont):
-    """
-    Calculate the percentile bounds of a data set divided by a group index.
+    """Compute joint agreement×threshold bootstrap samples at the median.
 
     Args:
-        arr_cont (np.array): The input array.
+        arr_cont: 1-D continuous observation array.
 
     Returns:
-        Tuple[DataFrame, DataFrame, DataFrame]: A tuple containing three pandas DataFrame objects.
-            - The first DataFrame contains the lower percentile bounds, with percentile value as index
-                and completeness as columns.
-            - The second DataFrame contains the median percentile bounds, with percentile value as index
-                and completeness as columns.
-            - The third DataFrame contains the upper percentile bounds, with percentile value as index
-                and completeness as columns.
-
+        Array of shape (n_thresholds, n_noise_levels, 1, 1000).
     """
 
     threshold = np.round(np.arange(0, 1, 0.01), 2)
@@ -664,33 +595,25 @@ def get_joint_sampler(arr_cont):
 
     arr_sample = np.empty((len(threshold), len(noise_level), len(percentile), 1000))
 
-    print('hi mom!')
+    print("hi mom!")
 
     for i, t in enumerate(threshold):
         for j, o in enumerate(noise_level):
-            arr_sample[i, j, :, :] = agreement_sampler(arr_cont, n=arr_cont.shape[0],
-                                                       thresh=t, scale=o,
-                                                       percentile=percentile)
+            arr_sample[i, j, :, :] = agreement_sampler(
+                arr_cont, n=arr_cont.shape[0], thresh=t, scale=o, percentile=percentile
+            )
 
     return arr_sample
 
 
 def get_noisy_sampler_bounds(df_cont):
-    """
-    Calculate the percentile bounds of a data set divided by a group index.
+    """Compute 2.5 / 50 / 97.5 percentile bounds from noisy bootstrap across noise levels.
 
     Args:
-        df_cont (DataFrame): The input DataFrame. Should contain a 'mu' column.
+        df_cont: DataFrame with a 'mu' column of continuous observations.
 
     Returns:
-        Tuple[DataFrame, DataFrame, DataFrame]: A tuple containing three pandas DataFrame objects.
-            - The first DataFrame contains the lower percentile bounds, with percentile value as index
-                and completeness as columns.
-            - The second DataFrame contains the median percentile bounds, with percentile value as index
-                and completeness as columns.
-            - The third DataFrame contains the upper percentile bounds, with percentile value as index
-                and completeness as columns.
-
+        Tuple of (lower, median, upper) DataFrames indexed by percentile, columns = noise levels.
     """
 
     arr_cont = df_cont.mu.values
@@ -704,29 +627,27 @@ def get_noisy_sampler_bounds(df_cont):
         for j, n in enumerate(noise_level):
             arr_sample[i, j, :] = noisy_sampler(arr_cont, n, len(arr_cont) - 1, p)
 
-    df_lower = pd.DataFrame(np.percentile(arr_sample, 2.5, axis=2), index=percentile, columns=noise_level)
-    df_med = pd.DataFrame(np.percentile(arr_sample, 50, axis=2), index=percentile, columns=noise_level)
-    df_upper = pd.DataFrame(np.percentile(arr_sample, 97.5, axis=2), index=percentile, columns=noise_level)
+    df_lower = pd.DataFrame(
+        np.percentile(arr_sample, 2.5, axis=2), index=percentile, columns=noise_level
+    )
+    df_med = pd.DataFrame(
+        np.percentile(arr_sample, 50, axis=2), index=percentile, columns=noise_level
+    )
+    df_upper = pd.DataFrame(
+        np.percentile(arr_sample, 97.5, axis=2), index=percentile, columns=noise_level
+    )
 
     return df_lower, df_med, df_upper
 
 
 def get_replacement_sampler(df_cont):
-    """
-    Calculate the percentile bounds of a data set divided by a group index.
+    """Compute 2.5 / 50 / 97.5 percentile bounds from replacement bootstrap across replacement steps.
 
     Args:
-        df_cont (DataFrame): The input DataFrame. Should contain a 'mu' column.
+        df_cont: DataFrame with a 'mu' column of continuous observations.
 
     Returns:
-        Tuple[DataFrame, DataFrame, DataFrame]: A tuple containing three pandas DataFrame objects.
-            - The first DataFrame contains the lower percentile bounds, with percentile value as index
-                and completeness as columns.
-            - The second DataFrame contains the median percentile bounds, with percentile value as index
-                and completeness as columns.
-            - The third DataFrame contains the upper percentile bounds, with percentile value as index
-                and completeness as columns.
-
+        Tuple of (lower, median, upper) DataFrames indexed by percentile, columns = replacement steps.
     """
     arr_cont = df_cont.mu.values
 
@@ -739,7 +660,19 @@ def get_replacement_sampler(df_cont):
         for j, n in enumerate(replacement_step):
             arr_sample[i, j, :] = replacement_sampler(arr_cont, len(arr_cont) - 1, n, p)
 
-    df_lower = pd.DataFrame(np.percentile(arr_sample, 2.5, axis=2), index=percentile, columns=replacement_step)
-    df_med = pd.DataFrame(np.percentile(arr_sample, 50, axis=2), index=percentile, columns=replacement_step)
-    df_upper = pd.DataFrame(np.percentile(arr_sample, 97.5, axis=2), index=percentile, columns=replacement_step)
+    df_lower = pd.DataFrame(
+        np.percentile(arr_sample, 2.5, axis=2),
+        index=percentile,
+        columns=replacement_step,
+    )
+    df_med = pd.DataFrame(
+        np.percentile(arr_sample, 50, axis=2),
+        index=percentile,
+        columns=replacement_step,
+    )
+    df_upper = pd.DataFrame(
+        np.percentile(arr_sample, 97.5, axis=2),
+        index=percentile,
+        columns=replacement_step,
+    )
     return df_lower, df_med, df_upper

@@ -1,109 +1,13 @@
-# flake8: noqa
-"""
-POD Objects and Functions
-Last Updated: April 30, 2025
-This script contains the Proper Orthogonal Decomposition (POD) objects
-and functions for spatial and temporal analysis.
-@author: markjcampmier
-"""
-# Import Packages
+"""Proper Orthogonal Decomposition (POD) classes for spatial and temporal analysis."""
+
 import numpy as np
 import pandas as pd
 
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
+import matplotlib.dates as mdates  # noqa: F401
 import cmcrameri
 
 from scipy.linalg import svd, eigh
-from typing import Union, Dict, Optional, Tuple
-
-
-# Define GappyPOD Class
-"""
-
-class GappyPOD:
-    def __init__(self, n_modes=None, max_iter=100, tol=1e-6):
-        self.n_modes = n_modes
-        self.max_iter = max_iter
-        self.tol = tol
-        self.spatial_modes = None
-        self.temporal_modes = None
-        self.singular_values = None
-        self.columns = None
-        self.index = None
-
-    def _dataframe_to_array(self, df):
-        self.columns = df.columns
-        self.index = df.index
-        data = df.values
-        mask = ~np.isnan(data)
-        return data, mask
-
-    def _array_to_dataframe(self, arr):
-        return pd.DataFrame(arr, index=self.index, columns=self.columns)
-
-    def fit_transform(
-        self, ds, return_reconstruction=False, value="pa_campmier_delhi_mean"
-    ):
-
-        df = ds.to_dataframe().pivot_table(index="time", columns="site", values=value)
-
-        data, mask = self._dataframe_to_array(df)
-
-        # Initial guess for missing values
-        filled_data = data.copy()
-        for col in range(data.shape[1]):
-            col_mask = mask[:, col]
-            if np.any(col_mask):
-                filled_data[~col_mask, col] = np.mean(data[col_mask, col])
-            else:
-                filled_data[:, col] = np.nanmean(data)
-
-        # Initialize convergence tracking
-        prev_error = np.inf
-        self.reconstruction_error = []
-
-        for iter in range(self.max_iter):
-            # Compute POD
-            U, s, Vt = self._compute_pod(filled_data)
-
-            # Reconstruct data
-            reconstruction = U @ np.diag(s) @ Vt
-
-            # Update only missing values
-            filled_data[~mask] = reconstruction[~mask]
-
-            # Check convergence on known values
-            error = np.mean((reconstruction[mask] - data[mask]) ** 2)
-            self.reconstruction_error.append(error)
-
-            if abs(error - prev_error) < self.tol:
-                print(f"Converged after {iter + 1} iterations")
-                break
-
-            prev_error = error
-
-        # Store final modes
-        self.spatial_modes = U
-        self.singular_values = s
-        self.temporal_modes = Vt.T
-
-        # Convert reconstruction back to DataFrame
-        if return_reconstruction:
-            return self._array_to_dataframe(reconstruction)
-
-    def _compute_pod(self, data):
-        U, s, Vt = svd(data, full_matrices=False)
-
-        if self.n_modes is None:
-            # Use energy criterion (95% of total energy)
-            energy = np.cumsum(s**2) / np.sum(s**2)
-            self.n_modes = np.argmax(energy >= 0.95) + 1
-
-        return U[:, : self.n_modes], s[: self.n_modes], Vt[: self.n_modes, :]"""
-
-
-# Define Spatial POD Class
 
 
 class SpatialPOD:
@@ -149,25 +53,18 @@ class GappyPOD:
 
     def __init__(
         self,
-        n_modes: Optional[int] = None,
-        max_iter: int = 5,  # Reduced from 100
-        tol: float = 1e-3,  # Less strict than 1e-6
+        n_modes: int | None = None,
+        max_iter: int = 5,
+        tol: float = 1e-3,
         energy_threshold: float = 0.95,
         weight_decay: float = 0.8,
-    ):  # Weight for new reconstructions
-        """
-        Parameters
-        ----------
-        n_modes : int, optional
-            Number of POD modes to retain. If None, determined by energy_threshold
-        max_iter : int
-            Maximum iterations for Gappy POD (default 5)
-        tol : float
-            Convergence tolerance on mode changes (default 1e-3)
-        energy_threshold : float
-            Energy threshold for automatic mode selection (default 0.95)
-        weight_decay : float
-            Weight for new reconstruction vs previous (default 0.8)
+    ):
+        """Args:
+        n_modes: Number of POD modes to retain; auto-selected via *energy_threshold* if None.
+        max_iter: Maximum Gappy POD iterations.
+        tol: Convergence tolerance on mode changes.
+        energy_threshold: Cumulative energy fraction for automatic mode selection.
+        weight_decay: Blend weight for new reconstruction vs. previous (0–1).
         """
         self.n_modes = n_modes
         self.max_iter = max_iter
@@ -192,29 +89,21 @@ class GappyPOD:
 
     def fit_transform(
         self,
-        data: Union[pd.DataFrame, np.ndarray, object],
+        data: pd.DataFrame | np.ndarray | object,
         return_reconstruction: bool = False,
         return_components: bool = False,
         value: str = "pa_campmier_delhi_mean",
-    ) -> Union[pd.DataFrame, Dict]:
-        """
-        Fit Gappy POD to data with missing values.
+    ) -> pd.DataFrame | dict:
+        """Fit Gappy POD to data with missing values and optionally return reconstruction.
 
-        Parameters
-        ----------
-        data : DataFrame, ndarray, or xarray Dataset
-            Input data with missing values
-        return_reconstruction : bool
-            Whether to return the reconstructed data
-        return_components : bool
-            Whether to return all components (for MEMD workflow)
-        value : str
-            Variable name if input is xarray Dataset
+        Args:
+            data: Input data — DataFrame, ndarray, or xarray Dataset with missing values.
+            return_reconstruction: Return the reconstructed DataFrame if True.
+            return_components: Return a full components dict (for MEMD workflow) if True.
+            value: Variable name when *data* is an xarray Dataset.
 
-        Returns
-        -------
-        DataFrame or Dict
-            Reconstructed data or dictionary with all components
+        Returns:
+            Reconstructed data or components dict depending on flags; self otherwise.
         """
         # Convert input to numpy array
         if hasattr(data, "to_dataframe"):
@@ -332,7 +221,7 @@ class GappyPOD:
             # Default: return self for method chaining
             return self
 
-    def _dataframe_to_array(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
+    def _dataframe_to_array(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
         """Convert DataFrame to array and extract mask."""
         self.columns = df.columns
         self.index = df.index
@@ -367,7 +256,7 @@ class GappyPOD:
 
     def _compute_weighted_pod(
         self, data: np.ndarray, weights: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Compute POD with optional weighting for uncertainty.
 
@@ -387,7 +276,7 @@ class GappyPOD:
 
         return U[:, :n_modes], s[:n_modes], Vt[:n_modes, :]
 
-    def transform(self, new_data: Union[pd.DataFrame, np.ndarray]) -> np.ndarray:
+    def transform(self, new_data: pd.DataFrame | np.ndarray) -> np.ndarray:
         """
         Project new data onto existing POD modes.
         """
@@ -460,7 +349,7 @@ class GappyPOD:
         plt.grid(True, alpha=0.3)
         plt.show()
 
-    def get_uncertainty_summary(self) -> Dict:
+    def get_uncertainty_summary(self) -> dict:
         """
         Get summary of uncertainty in reconstruction.
         """
@@ -483,38 +372,21 @@ class GappyPOD:
         }
 
 
-# Define Functions
-
-
 def perform_gappy_pod_on_imf(
     imfs, imf_idx, timestamps=None, site_ids=None, max_iterations=10, tol=1e-6
 ):
-    """
-    Perform Gappy POD analysis on a specific IMF level from MEMD output.
-    Handles missing data (NaN values).
+    """Perform Gappy POD analysis on a single IMF level from MEMD output.
 
-    Parameters:
-    -----------
-    imfs : ndarray
-        IMFs array with shape (m, n, p) where:
-        - m is the number of IMF levels
-        - n is the number of time points
-        - p is the number of stations/locations
-    imf_idx : int
-        Index of the IMF level to analyze (0 for highest frequency)
-    timestamps : array-like, optional
-        Timestamps corresponding to the time dimension
-    site_ids : list, optional
-        List of site identifiers for each station
-    max_iterations : int
-        Maximum number of iterations for Gappy POD convergence
-    tol : float
-        Tolerance for convergence
+    Args:
+        imfs: IMF array of shape (n_imfs, n_times, n_stations).
+        imf_idx: IMF level index to analyse (0 = highest frequency).
+        timestamps: Time axis labels; auto-generated integer range if None.
+        site_ids: Station identifiers; auto-generated labels if None.
+        max_iterations: Maximum Gappy POD iterations.
+        tol: Relative change tolerance for convergence.
 
     Returns:
-    --------
-    pod_results : dict
-        Dictionary containing POD analysis results
+        Dictionary with POD analysis results (eigenvalues, eigenvectors, temporal coefficients, etc.).
     """
     # Extract dimensions
     n_imfs, n_times, n_stations = imfs.shape
@@ -684,7 +556,6 @@ def visualize_pod_results(
     # Extract data from POD results
     imf_level = pod_results["imf_level"]
     C = pod_results["correlation_matrix"]
-    eigenvalues = pod_results["eigenvalues"]
     eigenvectors = pod_results["eigenvectors"]
     explained_var = pod_results["explained_variance"]
     temporal_coeff = pod_results["temporal_coefficients"]
@@ -919,9 +790,7 @@ def analyze_all_imf_levels(
         all_results.append(results)
 
         # Visualize results
-        fig = visualize_pod_results(
-            results, show_data_reconstruction=show_reconstruction
-        )
+        visualize_pod_results(results, show_data_reconstruction=show_reconstruction)
         plt.show()
 
     return all_results

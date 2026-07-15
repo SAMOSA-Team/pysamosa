@@ -1,0 +1,9 @@
+[main]
+ignore=CVS,__pycache__
+persistent=no
+
+[messages control]
+disable=E0401,E0601,C0103,C0413,C0411,R0801,C0114,C0116,W1203,W0621
+
+[format]
+max-line-length=130

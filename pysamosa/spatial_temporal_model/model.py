@@ -1,3 +1,5 @@
+"""Spatio-temporal model orchestrator: POD decomposition, reprojection, and reconstruction."""
+
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -33,12 +35,10 @@ class SpatialTemporalModel:
         )
 
     def _compute_reconstruction_matrix(self):
-        """
-        Compute the reconstruction matrix using the derived reprojection matrix C.
+        """Compute the reconstruction matrix from the reprojection matrix C.
 
         Returns:
-            numpy.ndarray: Reconstruction matrix of shape (n_times, n_locations)
-                where rows correspond to different time points and columns to different locations
+            Reconstruction matrix of shape (n_locations, n_times).
         """
         s = np.diag(self.gpod.singular_values)
 
@@ -152,9 +152,9 @@ class SpatialTemporalModel:
         ds[data_var_name].attrs["description"] = "Reconstructed values"
         ds.latitude.attrs["units"] = "degrees_north"
         ds.longitude.attrs["units"] = "degrees_east"
-        ds.is_training.attrs[
-            "description"
-        ] = "Boolean mask indicating training locations"
+        ds.is_training.attrs["description"] = (
+            "Boolean mask indicating training locations"
+        )
 
         return ds
 
@@ -187,9 +187,9 @@ class SpatialTemporalModel:
         )
 
         # Add metadata
-        ds.singular_values.attrs[
-            "description"
-        ] = "Singular values from POD decomposition"
+        ds.singular_values.attrs["description"] = (
+            "Singular values from POD decomposition"
+        )
         ds.spatial_modes.attrs["description"] = "Spatial modes from POD decomposition"
         ds.temporal_modes.attrs["description"] = "Temporal modes from POD decomposition"
 
