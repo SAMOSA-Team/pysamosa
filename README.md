@@ -1,6 +1,6 @@
 # pysamosa
 
-A Python toolkit for processing, merging, and modeling multi-source air quality datasets — primarily low-cost sensor networks (PurpleAir), regulatory monitors (CPCB), and satellite retrievals (TROPOMI, Martin AOD-PM), with a spatiotemporal decomposition layer.
+A Python toolkit for processing, merging, and modeling multi-source air quality datasets — primarily low-cost sensor networks (PurpleAir), regulatory monitors (CPCB), and satellite retrievals (TROPOMI, Martin AOD-PM), with a spatiotemporal decomposition layer for fun.
 
 ## Package Structure
 
