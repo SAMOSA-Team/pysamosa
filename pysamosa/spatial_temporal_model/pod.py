@@ -11,6 +11,8 @@ from scipy.linalg import svd, eigh
 
 
 class SpatialPOD:
+    """Spatial Proper Orthogonal Decomposition for multi-site time series."""
+
     def __init__(self, n_modes=None):
         self.n_modes = n_modes
         self.spatial_modes = None
@@ -211,15 +213,13 @@ class GappyPOD:
                 "n_iterations": self.n_iterations_actual,
                 "reconstruction_history": self.reconstruction_history,
             }
-        elif return_reconstruction:
+        if return_reconstruction:
             # Return as DataFrame if requested
             if self.columns is not None:
                 return self._array_to_dataframe(final_reconstruction)
-            else:
-                return final_reconstruction
-        else:
-            # Default: return self for method chaining
-            return self
+            return final_reconstruction
+        # Default: return self for method chaining
+        return self
 
     def _dataframe_to_array(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
         """Convert DataFrame to array and extract mask."""
@@ -255,7 +255,7 @@ class GappyPOD:
         return filled_data
 
     def _compute_weighted_pod(
-        self, data: np.ndarray, weights: np.ndarray
+        self, data: np.ndarray, weights: np.ndarray  # pylint: disable=unused-argument
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Compute POD with optional weighting for uncertainty.
@@ -772,7 +772,7 @@ def analyze_all_imf_levels(
     levels_to_analyze=None,
     show_reconstruction=False,
 ):
-    """ """
+    """Analyze all IMF decomposition levels and visualize POD results."""
     n_imfs, _, _ = imfs.shape
 
     # Default: analyze all IMF levels

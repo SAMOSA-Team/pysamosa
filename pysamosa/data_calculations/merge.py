@@ -137,7 +137,7 @@ def fixed_point_merge(ds_points, ds_merge, tolerance=0.005, keys="site", xy=None
         df_coords_merge, df_coords_points, tolerance=tolerance
     )
 
-    if type(keys) is dict:
+    if isinstance(keys, dict):
         ds_matched_merge = ds_merge.sel(
             {keys["merge"]: df_matched.collocation_site.values}
         )
@@ -183,12 +183,11 @@ def get_chunk_spec(path, reference_chunks=None):
             # Otherwise, chunk based on available dimensions
             if "time" in ds.dims:
                 return {"time": 1000}
-            elif "site" in ds.dims:
+            if "site" in ds.dims:
                 return {"site": 100}
-            elif "position" in ds.dims:
+            if "position" in ds.dims:
                 return {"position": 100}
-            else:
-                return None
+            return None
 
     except (OSError, ValueError, ImportError):
         return None
@@ -215,13 +214,11 @@ def open_and_merge(in_path, file_list):
         try:
             if chunks is not None:
                 return xr.open_dataset(path, engine="h5netcdf", chunks=chunks)
-            else:
-                return xr.open_dataset(path, engine="h5netcdf")
+            return xr.open_dataset(path, engine="h5netcdf")
         except (ImportError, OSError, ValueError):
             if chunks is not None:
                 return xr.open_dataset(path, chunks=chunks)
-            else:
-                return xr.open_dataset(path)
+            return xr.open_dataset(path)
 
     # Get chunk spec for first dataset - this will be our reference
     first_path = os.path.join(in_path, f"{file_list[0]}.nc")
@@ -393,16 +390,14 @@ def merge_reference(in_path):
                 if hasattr(ds, "chunks"):
                     ds = ds.chunk(chunks)
                 return ds
-            else:
-                return xr.open_dataset(path, engine="h5netcdf")
+            return xr.open_dataset(path, engine="h5netcdf")
         except (OSError, ValueError, ImportError):
             if chunks is not None:
                 ds = xr.open_dataset(path, chunks=chunks)
                 if hasattr(ds, "chunks"):
                     ds = ds.chunk(chunks)
                 return ds
-            else:
-                return xr.open_dataset(path)
+            return xr.open_dataset(path)
 
     print("Starting reference merge...")
 
@@ -471,22 +466,19 @@ def merge_reference(in_path):
 
         print("All rasters merged successfully")
         return ds_reference
-    else:
-        print("No raster datasets found")
-        return ds_reference
+    print("No raster datasets found")
+    return ds_reference
 
 
 def merge_phases(in_path, dict_phases):
     # ds_pa = xr.open_dataset(os.path.join(in_path, "pa.nc"))
     ds_pa = xr.open_dataset(os.path.join(in_path, "pr.nc"), chunks={"time": 1000})
     ds_phases = _make_phases(ds_pa, dict_phases)
-    """
-    ds_bam = fixed_point_merge(
-        ds_phases,
-        xr.open_dataset(os.path.join(in_path, "bam.nc")),
-        xy=[28.5468, 77.1906]
-    )
-    """
+    # ds_bam = fixed_point_merge(
+    #     ds_phases,
+    #     xr.open_dataset(os.path.join(in_path, "bam.nc")),
+    #     xy=[28.5468, 77.1906]
+    # )
     return ds_phases  # xr.merge([ds_phases, ds_bam])
 
 
@@ -916,7 +908,6 @@ def _make_history(ds):
     else:
         # If no position dimension, just use the dataset as is
         print("No position dimension found, using dataset as is")
-        ds_history = ds_history
 
     # Remove all-NaN time steps (compute just the mask to avoid loading all data)
     print("Removing all-NaN time steps...")

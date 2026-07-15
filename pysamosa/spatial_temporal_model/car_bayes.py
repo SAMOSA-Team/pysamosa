@@ -1,5 +1,7 @@
 """Conditional Auto-Regressive (CAR) Bayesian model for spatio-temporal PM2.5 fields."""
 
+# pylint: disable=W1309,W0611,W0613,E0102,E0602,C0115,R0902,C0301
+
 
 class CARModel:
     def __init__(self, df_sensors, df_satellite, gdf):

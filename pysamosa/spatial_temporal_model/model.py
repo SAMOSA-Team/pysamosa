@@ -10,6 +10,8 @@ import pysamosa.spatial_temporal_model.reprojection as reprojection
 
 
 class SpatialTemporalModel:
+    """Orchestrates POD decomposition, reprojection, and spatial reconstruction."""
+
     def __init__(self, loc_points, time_index):
         self.time_index = time_index
         self.loc_points = loc_points
@@ -74,8 +76,7 @@ class SpatialTemporalModel:
 
         if return_validation:
             return ds, df_validate
-        else:
-            return ds
+        return ds
 
     def export_reconstruction(self, data_var_name="reconstruction"):
         # Get reconstruction matrix of shape (n_locations × n_times)

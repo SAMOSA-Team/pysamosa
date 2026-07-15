@@ -328,13 +328,13 @@ class MEMD:
         return epsilon < self.stopping_criterion
 
     def _sift(self, signal, time_points):
-        n_samples, n_variables = signal.shape
+        _n_samples, _n_variables = signal.shape
 
         # Initialize mode and debug counters
         mode = signal.copy()
         iteration_count = 0
 
-        for iteration in range(self.n_iterations):
+        for _iteration in range(self.n_iterations):
             iteration_count += 1
 
             # Compute mean envelope
@@ -347,11 +347,11 @@ class MEMD:
             h = mode - mean_envelope
 
             # Debug information for troubleshooting
-            if iteration == 0 or iteration == 1:
+            if _iteration in (0, 1):
                 non_nan_count = np.sum(~np.isnan(h))
                 non_zero_count = np.sum(np.abs(h) > 1e-10)
                 print(
-                    f"Sifting iteration {iteration}: Non-NaN values: {non_nan_count}, Non-zero values: {non_zero_count}"
+                    f"Sifting iteration {_iteration}: Non-NaN values: {non_nan_count}, Non-zero values: {non_zero_count}"
                 )
                 if nan_in_envelope:
                     print(
@@ -361,7 +361,7 @@ class MEMD:
             # Check if h is all zeros or all NaNs (sifting has failed)
             if np.all(np.isnan(h)) or np.all(np.abs(h) < 1e-10):
                 print(
-                    f"Sifting terminated early at iteration {iteration}: All NaN or zero values"
+                    f"Sifting terminated early at iteration {_iteration}: All NaN or zero values"
                 )
                 # Return a copy of the original signal with small perturbation to avoid returning all zeros
                 # This helps debug the issue while letting the algorithm continue
@@ -375,7 +375,7 @@ class MEMD:
 
             # Check if h satisfies the IMF criteria
             if self._check_imf(h, mean_envelope):
-                print(f"IMF criteria satisfied after {iteration+1} iterations")
+                print(f"IMF criteria satisfied after {_iteration+1} iterations")
                 return h, signal - h
 
             # Update mode
@@ -523,7 +523,7 @@ class MEMD:
         if self.imfs is None:
             raise ValueError("No IMFs to calculate energy. Call decompose() first.")
 
-        n_imfs, n_samples, n_variables = self.imfs.shape
+        n_imfs, _n_samples, n_variables = self.imfs.shape
 
         # Initialize energy arrays
         energies = np.zeros((n_imfs, n_variables))
@@ -611,7 +611,7 @@ class MEMD:
             self._calculate_imf_energies()
 
         # Create figure with two subplots
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+        _fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
         # Number of IMFs
         n_imfs = len(self.imf_energies["percentage"])
@@ -661,7 +661,7 @@ class MEMD:
                 time_points = np.arange(n_samples)
 
         # Create a figure
-        fig, axes = plt.subplots(n_imfs, 1, figsize=(10, 2 * n_imfs), sharex=True)
+        _fig, axes = plt.subplots(n_imfs, 1, figsize=(10, 2 * n_imfs), sharex=True)
 
         if n_imfs == 1:
             axes = [axes]
@@ -780,7 +780,7 @@ class MEMD:
 
 
 def compare_imf_across_locations(imfs_array, imf_index=0):
-    m, n, p = imfs_array.shape
+    m, n, _p = imfs_array.shape
     selected_imf = imfs_array[:, :, imf_index]  # shape: (m, n) - time × locations
 
     # Calculate metrics for each location
@@ -1039,7 +1039,7 @@ class EnhancedMEMD:
         time_points: np.ndarray,
         extrema_times: np.ndarray,
         extrema_values: np.ndarray,
-        signal_times: np.ndarray,
+        signal_times: np.ndarray,  # pylint: disable=unused-argument
         signal_values: np.ndarray,
     ) -> np.ndarray:
         """
@@ -1222,7 +1222,7 @@ class EnhancedMEMD:
         """Sifting process with robust missing data handling."""
         mode = signal.copy()
 
-        for iteration in range(self.n_iterations):
+        for _iteration in range(self.n_iterations):
             # Compute mean envelope
             mean_envelope = self._compute_envelopes(mode, time_points)
 
@@ -1335,7 +1335,7 @@ class EnhancedMEMD:
 
     def _analyze_missing_data(self, signal: np.ndarray) -> None:
         """Analyze missing data patterns."""
-        n_samples, n_variables = signal.shape
+        _n_samples, n_variables = signal.shape
         gaps = self._identify_gaps(signal)
 
         stats = {
@@ -1364,7 +1364,7 @@ class EnhancedMEMD:
         if self.imfs is None:
             return
 
-        n_imfs, n_samples, n_variables = self.imfs.shape
+        n_imfs, _n_samples, n_variables = self.imfs.shape
         energies = np.zeros((n_imfs, n_variables))
 
         for i in range(n_imfs):
@@ -1395,7 +1395,7 @@ class EnhancedMEMD:
         if self.imf_energies is None:
             return
 
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+        _fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
         # Energy distribution
         n_imfs = len(self.imf_energies["percentage"])
@@ -1425,7 +1425,7 @@ class EnhancedMEMD:
             return
 
         n_imfs = min(len(self.imfs), max_imfs_to_plot)
-        fig, axes = plt.subplots(
+        _fig, axes = plt.subplots(
             n_imfs + 1, 1, figsize=(12, 2.5 * (n_imfs + 1)), sharex=True
         )
 

@@ -166,7 +166,8 @@ class SensorCalibrator:
             )
         if model["type"] == "sklearn":
             return pd.Series(
-                self.sklearn_model(data, pa_raw_col, params["model"]), index=data.index
+                self.sklearn_model(data, pa_raw_col, params["model"]),  # pylint: disable=no-member
+                index=data.index,
             )
         raise ValueError(f"Unsupported model type: {model['type']}")
 

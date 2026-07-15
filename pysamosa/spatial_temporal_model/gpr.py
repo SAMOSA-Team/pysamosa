@@ -457,7 +457,7 @@ def reconstruct_data_from_spatiotemporal_gpr(models, predictions_list, locations
     uncertainty = np.zeros((n_times, n_locs))
 
     # For each model/prediction pair
-    for model, pred in zip(models, predictions_list):
+    for _model, pred in zip(models, predictions_list):
         # Get prediction components
         pred_times = pred["times"]
         pred_locs = pred["locations"]

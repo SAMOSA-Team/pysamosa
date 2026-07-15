@@ -283,7 +283,7 @@ def sensitivity_pipeline(in_path, n_processes=None, sensor_list=None):
 
     # Create all work combinations with serializable data
     work_items = []
-    for sensor, sensor_data in df_pa.groupby("sensor"):
+    for _sensor, sensor_data in df_pa.groupby("sensor"):
         # Convert DataFrame to dictionary for serialization
         sensor_dict = {
             "time": sensor_data.index.astype(str).tolist(),
@@ -302,7 +302,7 @@ def sensitivity_pipeline(in_path, n_processes=None, sensor_list=None):
     results_by_params = {}
     with Pool(n_processes) as pool:
         for result in tqdm(
-            pool.imap(process_single_combination, work_items),  # noqa: F821
+            pool.imap(_process_sensor_chunk, work_items),
             total=len(work_items),
             desc=f"Processing all combinations using {n_processes} processes",
         ):

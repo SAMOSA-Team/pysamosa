@@ -232,7 +232,7 @@ def multi_block_sampler(obs, ids, n, p):
     nblocks = np.floor(len(obs) / (len(obs) - n))
     for i in range(0, 1000):
         dist = []
-        for block in nblocks:
+        for _block in nblocks:
             start = np.random.choice(ids, size=1, replace=False)
             dist.append(obs[start : start + (len(obs) - n)])
             ids = ids[:start] + ids[start + (len(obs) - n) :]
@@ -554,7 +554,7 @@ def get_agreement_wander(arr_cont):
     percentile = np.arange(1, 100, 1)
 
     arr_sample = np.empty((len(percentile), len(agreement_level), 1000))
-    for j, s in enumerate(agreement_level):
+    for j, _s in enumerate(agreement_level):
         arr_sample[:, j, :] = agreement_sampler(
             arr_cont, len(arr_cont) - 1, loc=0, scale=agreement_level[j]
         )
@@ -569,11 +569,10 @@ def get_agreement_fixed(arr_cont):
 
     arr_sample = np.empty((len(percentile), len(agreement_level), 1000))
 
-    for i, p in enumerate(percentile):
-        for j, s in enumerate(agreement_level):
-            arr_sample[i, j, :] = agreement_sampler(
-                arr_cont, len(arr_cont) - 1, p, loc=agreement_level[j], scale=0.1
-            )
+    for j, level in enumerate(agreement_level):
+        arr_sample[:, j, :] = agreement_sampler(
+            arr_cont, len(arr_cont) - 1, loc=level, scale=0.1
+        )
 
     return arr_sample
 
@@ -623,9 +622,8 @@ def get_noisy_sampler_bounds(df_cont):
 
     arr_sample = np.empty((len(percentile), len(noise_level), 1000))
 
-    for i, p in enumerate(percentile):
-        for j, n in enumerate(noise_level):
-            arr_sample[i, j, :] = noisy_sampler(arr_cont, n, len(arr_cont) - 1, p)
+    for j, n in enumerate(noise_level):
+        arr_sample[:, j, :] = noisy_sampler(arr_cont, len(arr_cont) - 1, n)
 
     df_lower = pd.DataFrame(
         np.percentile(arr_sample, 2.5, axis=2), index=percentile, columns=noise_level

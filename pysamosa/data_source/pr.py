@@ -72,8 +72,8 @@ def _index_pr(in_path: str) -> dict[str, pd.DataFrame]:
     df_b = pd.DataFrame()
     df_rh = pd.DataFrame()
 
-    for sensor_idx in sensor_data_a:
-        sensor_a = pd.concat(sensor_data_a[sensor_idx]).sort_index()
+    for sensor_idx, data_a in sensor_data_a.items():
+        sensor_a = pd.concat(data_a).sort_index()
         sensor_b = pd.concat(sensor_data_b[sensor_idx]).sort_index()
         sensor_rh = pd.concat(sensor_data_rh[sensor_idx]).sort_index()
 

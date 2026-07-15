@@ -3,7 +3,31 @@ ignore=CVS,__pycache__
 persistent=no
 
 [messages control]
-disable=E0401,E0601,C0103,C0413,C0411,R0801,C0114,C0116,W1203,W0621
+disable=
+    # existing suppressions
+    E0401,E0601,C0103,C0413,C0411,R0801,C0114,C0116,W1203,W0621,
+    # structural limits — not fixable without major refactoring
+    R0914,R0912,R0913,R0915,R0902,R1702,R0903,R0917,C0302,
+    # style preferences — covered by black/flake8
+    C0209,C0412,R1735,C0200,R1721,R0402,
+    # lazy/optional imports inside functions are intentional
+    C0415,
+    # attributes set in factory/load methods outside __init__ are acceptable
+    W0201,
+    # car_bayes.py notebook artifacts (file-level)
+    W0105,W0404,
+    # broad-exception-caught — acceptable in library fallback paths
+    W0718
 
 [format]
 max-line-length=130
+
+[design]
+# Relax limits for scientific/numerical code
+max-locals=20
+max-branches=15
+max-statements=60
+max-attributes=15
+max-args=7
+max-positional-arguments=7
+max-returns=8

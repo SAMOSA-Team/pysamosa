@@ -6,7 +6,7 @@ import re
 import pandas as pd
 import geopandas as gpd
 import xarray as xr
-import rioxarray as rxr  # noqa: F401 — registers the rio accessor
+import rioxarray as rxr  # noqa: F401  # pylint: disable=unused-import  # registers the rio accessor
 from shapely.geometry import mapping
 from rasterio.enums import Resampling
 
