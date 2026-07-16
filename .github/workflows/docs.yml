@@ -21,8 +21,8 @@ jobs:
       - name: Set up conda environment
         uses: conda-incubator/setup-miniconda@v3
         with:
-          environment-file: workflow/envs/python.yaml
-          activate-environment: aerlift-python
+          environment-file: envs/pysamosa.yaml
+          activate-environment: pysamosa
           auto-activate-base: false
       - name: Build docs
         shell: bash -el {0}
