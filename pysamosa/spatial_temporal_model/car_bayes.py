@@ -784,93 +784,94 @@ def evaluate_hyperparameters(
     return rmse, sat_rmse
 
 
-# Create train/test split (80/20 random hold-out)
-np.random.seed(42)
-sensor_mask = ~car_model.sensor_obs.isna()
-test_fraction = 0.2
+if __name__ == "__main__":
+    # Create train/test split (80/20 random hold-out)
+    np.random.seed(42)
+    sensor_mask = ~car_model.sensor_obs.isna()
+    test_fraction = 0.2
 
-sensor_obs_train = car_model.sensor_obs.copy()
-sensor_obs_test = pd.DataFrame(
-    np.nan, index=car_model.sensor_obs.index, columns=car_model.sensor_obs.columns
-)
-
-# Randomly hold out 20% of observations
-for s in range(car_model.n_settlements):
-    for h in range(car_model.n_hours):
-        if sensor_mask.iloc[h, s]:
-            if np.random.rand() < test_fraction:
-                # Move to test set
-                sensor_obs_test.iloc[h, s] = car_model.sensor_obs.iloc[h, s]
-                sensor_obs_train.iloc[h, s] = np.nan
-
-n_train = (~sensor_obs_train.isna()).sum().sum()
-n_test = (~sensor_obs_test.isna()).sum().sum()
-print(f"Train: {n_train} observations, Test: {n_test} observations")
-
-# Grid search over hyperparameters
-tau_spatial_grid = [0.1, 0.5, 1.0, 2.0]
-tau_hourly_grid = [0.5, 1.0, 2.0, 5.0]
-tau_daily_grid = [0.5, 1.0, 2.0, 5.0]
-tau_satellite_grid = [5.0, 10.0, 20.0]
-
-print("\nGrid search (this will take a few minutes)...")
-print("tau_spatial | tau_hourly | tau_daily | tau_satellite | Test RMSE | Sat RMSE")
-print("-" * 80)
-
-results = []
-for tau_sp, tau_hr, tau_dy, tau_sat in itertools.product(
-    tau_spatial_grid, tau_hourly_grid, tau_daily_grid, tau_satellite_grid
-):
-
-    test_rmse, sat_rmse = evaluate_hyperparameters(
-        tau_sp, tau_hr, tau_dy, tau_sat, sensor_obs_train, sensor_obs_test
+    sensor_obs_train = car_model.sensor_obs.copy()
+    sensor_obs_test = pd.DataFrame(
+        np.nan, index=car_model.sensor_obs.index, columns=car_model.sensor_obs.columns
     )
 
-    results.append(
-        {
-            "tau_spatial": tau_sp,
-            "tau_hourly": tau_hr,
-            "tau_daily": tau_dy,
-            "tau_satellite": tau_sat,
-            "test_rmse": test_rmse,
-            "sat_rmse": sat_rmse,
-        }
-    )
+    # Randomly hold out 20% of observations
+    for s in range(car_model.n_settlements):
+        for h in range(car_model.n_hours):
+            if sensor_mask.iloc[h, s]:
+                if np.random.rand() < test_fraction:
+                    # Move to test set
+                    sensor_obs_test.iloc[h, s] = car_model.sensor_obs.iloc[h, s]
+                    sensor_obs_train.iloc[h, s] = np.nan
 
-    print(
-        f"{tau_sp:8.1f} | {tau_hr:10.1f} | {tau_dy:9.1f} | {tau_sat:13.1f} | {test_rmse:9.2f} | {sat_rmse:8.2f}"
-    )
+    n_train = (~sensor_obs_train.isna()).sum().sum()
+    n_test = (~sensor_obs_test.isna()).sum().sum()
+    print(f"Train: {n_train} observations, Test: {n_test} observations")
 
-# Find best
-results_df = pd.DataFrame(results)
-best_idx = results_df["test_rmse"].idxmin()
-best = results_df.iloc[best_idx]
+    # Grid search over hyperparameters
+    tau_spatial_grid = [0.1, 0.5, 1.0, 2.0]
+    tau_hourly_grid = [0.5, 1.0, 2.0, 5.0]
+    tau_daily_grid = [0.5, 1.0, 2.0, 5.0]
+    tau_satellite_grid = [5.0, 10.0, 20.0]
 
-print("\n" + "=" * 80)
-print("BEST HYPERPARAMETERS:")
-print("=" * 80)
-print(f"tau_spatial:   {best['tau_spatial']:.1f}")
-print(f"tau_hourly:    {best['tau_hourly']:.1f}")
-print(f"tau_daily:     {best['tau_daily']:.1f}")
-print(f"tau_satellite: {best['tau_satellite']:.1f}")
-print(f"\nTest RMSE: {best['test_rmse']:.2f}")
-print(f"Satellite constraint RMSE: {best['sat_rmse']:.2f}")
+    print("\nGrid search (this will take a few minutes)...")
+    print("tau_spatial | tau_hourly | tau_daily | tau_satellite | Test RMSE | Sat RMSE")
+    print("-" * 80)
 
-# What's a naive baseline?
-naive_rmse = np.sqrt(np.mean((sensor_obs_test.values[~sensor_obs_test.isna()]) ** 2))
-print(f"Predict-zero baseline RMSE: {naive_rmse:.2f}")
+    results = []
+    for tau_sp, tau_hr, tau_dy, tau_sat in itertools.product(
+        tau_spatial_grid, tau_hourly_grid, tau_daily_grid, tau_satellite_grid
+    ):
 
-# What if you just predict the prior?
-test_vals = []
-prior_preds = []
-for s in range(car_model.n_settlements):
-    for h in range(car_model.n_hours):
-        if not np.isnan(sensor_obs_test.iloc[h, s]):
-            test_vals.append(sensor_obs_test.iloc[h, s])
-            prior_preds.append(car_model.mu_prior[s * car_model.n_hours + h])
+        test_rmse, sat_rmse = evaluate_hyperparameters(
+            tau_sp, tau_hr, tau_dy, tau_sat, sensor_obs_train, sensor_obs_test
+        )
 
-prior_rmse = np.sqrt(np.mean((np.array(test_vals) - np.array(prior_preds)) ** 2))
-print(f"Sensor-informed prior RMSE: {prior_rmse:.2f}")
+        results.append(
+            {
+                "tau_spatial": tau_sp,
+                "tau_hourly": tau_hr,
+                "tau_daily": tau_dy,
+                "tau_satellite": tau_sat,
+                "test_rmse": test_rmse,
+                "sat_rmse": sat_rmse,
+            }
+        )
+
+        print(
+            f"{tau_sp:8.1f} | {tau_hr:10.1f} | {tau_dy:9.1f} | {tau_sat:13.1f} | {test_rmse:9.2f} | {sat_rmse:8.2f}"
+        )
+
+    # Find best
+    results_df = pd.DataFrame(results)
+    best_idx = results_df["test_rmse"].idxmin()
+    best = results_df.iloc[best_idx]
+
+    print("\n" + "=" * 80)
+    print("BEST HYPERPARAMETERS:")
+    print("=" * 80)
+    print(f"tau_spatial:   {best['tau_spatial']:.1f}")
+    print(f"tau_hourly:    {best['tau_hourly']:.1f}")
+    print(f"tau_daily:     {best['tau_daily']:.1f}")
+    print(f"tau_satellite: {best['tau_satellite']:.1f}")
+    print(f"\nTest RMSE: {best['test_rmse']:.2f}")
+    print(f"Satellite constraint RMSE: {best['sat_rmse']:.2f}")
+
+    # What's a naive baseline?
+    naive_rmse = np.sqrt(np.mean((sensor_obs_test.values[~sensor_obs_test.isna()]) ** 2))
+    print(f"Predict-zero baseline RMSE: {naive_rmse:.2f}")
+
+    # What if you just predict the prior?
+    test_vals = []
+    prior_preds = []
+    for s in range(car_model.n_settlements):
+        for h in range(car_model.n_hours):
+            if not np.isnan(sensor_obs_test.iloc[h, s]):
+                test_vals.append(sensor_obs_test.iloc[h, s])
+                prior_preds.append(car_model.mu_prior[s * car_model.n_hours + h])
+
+    prior_rmse = np.sqrt(np.mean((np.array(test_vals) - np.array(prior_preds)) ** 2))
+    print(f"Sensor-informed prior RMSE: {prior_rmse:.2f}")
 
 import numpy as np
 import pandas as pd

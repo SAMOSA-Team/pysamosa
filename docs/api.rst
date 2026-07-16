@@ -78,10 +78,6 @@ Spatial-Temporal Models
    :members:
    :undoc-members:
 
-.. automodule:: pysamosa.spatial_temporal_model.car_bayes
-   :members:
-   :undoc-members:
-
 .. automodule:: pysamosa.spatial_temporal_model.memd
    :members:
    :undoc-members:
