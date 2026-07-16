@@ -858,7 +858,9 @@ if __name__ == "__main__":
     print(f"Satellite constraint RMSE: {best['sat_rmse']:.2f}")
 
     # What's a naive baseline?
-    naive_rmse = np.sqrt(np.mean((sensor_obs_test.values[~sensor_obs_test.isna()]) ** 2))
+    naive_rmse = np.sqrt(
+        np.mean((sensor_obs_test.values[~sensor_obs_test.isna()]) ** 2)
+    )
     print(f"Predict-zero baseline RMSE: {naive_rmse:.2f}")
 
     # What if you just predict the prior?
