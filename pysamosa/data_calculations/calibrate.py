@@ -42,7 +42,7 @@ class SensorCalibrator:
 
     @staticmethod
     def get_pa_raw_columns(data: pd.DataFrame) -> list[str]:
-        """Return all column names starting with 'pa_raw_'.
+        """Return all column names starting with ``pa_raw_``.
 
         Args:
             data: DataFrame to search.

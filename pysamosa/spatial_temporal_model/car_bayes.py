@@ -636,95 +636,95 @@ class CARModel:  # noqa: F811
 
 # car_model = CARModel(df_sensors, df_sat, gdf_x)
 
+if __name__ == "__main__":
+    from scipy.sparse.linalg import spsolve
 
-from scipy.sparse.linalg import spsolve
+    # Use your CARModel with FIXED taus
+    car_model.create_adjacency_matrix()
+    car_model.create_spatial_precision_matrix(tau_spatial=0.5)
+    car_model.create_hourly_precision(tau_hourly=1.0)
+    car_model.create_daily_precision(tau_daily=1.0)
+    car_model.create_combined_precision()
+    car_model.build_full_precision()
+    car_model.learn_diurnal_patterns()
+    car_model.create_sensor_informed_prior()
+    car_model.build_satellite_constraints(tau_satellite=10.0)
+    car_model.build_posterior_system(use_sensor_patterns=False)
 
-# Use your CARModel with FIXED taus
-car_model.create_adjacency_matrix()
-car_model.create_spatial_precision_matrix(tau_spatial=0.5)
-car_model.create_hourly_precision(tau_hourly=1.0)
-car_model.create_daily_precision(tau_daily=1.0)
-car_model.create_combined_precision()
-car_model.build_full_precision()
-car_model.learn_diurnal_patterns()
-car_model.create_sensor_informed_prior()
-car_model.build_satellite_constraints(tau_satellite=10.0)
-car_model.build_posterior_system(use_sensor_patterns=False)
+    # Solve
+    # theta_map = spsolve(car_model.Q_posterior, car_model.b_posterior)
 
-# Solve
-# theta_map = spsolve(car_model.Q_posterior, car_model.b_posterior)
+    from scipy.sparse.linalg import cg, spilu, LinearOperator
+    import time
 
-from scipy.sparse.linalg import cg, spilu, LinearOperator
-import time
+    # Option 1: Basic CG (fastest to try)
+    print("Solving with CG...")
+    start = time.time()
+    theta_map, info = cg(
+        car_model.Q_posterior,
+        car_model.b_posterior,
+        x0=car_model.mu_prior,  # Start from sensor prior
+        maxiter=1000,
+    )
+    print(f"CG took {time.time()-start:.1f}s, converged: {info==0}")
 
-# Option 1: Basic CG (fastest to try)
-print("Solving with CG...")
-start = time.time()
-theta_map, info = cg(
-    car_model.Q_posterior,
-    car_model.b_posterior,
-    x0=car_model.mu_prior,  # Start from sensor prior
-    maxiter=1000,
-)
-print(f"CG took {time.time()-start:.1f}s, converged: {info==0}")
+    # Option 2: CG with preconditioner (if basic CG is slow)
+    # Build incomplete LU preconditioner
+    """
+    print("Building preconditioner...")
+    ilu = spilu(car_model.Q_posterior.tocsc(), drop_tol=1e-3, fill_factor=10)
+    M = LinearOperator(car_model.Q_posterior.shape, ilu.solve)
 
-# Option 2: CG with preconditioner (if basic CG is slow)
-# Build incomplete LU preconditioner
-"""
-print("Building preconditioner...")
-ilu = spilu(car_model.Q_posterior.tocsc(), drop_tol=1e-3, fill_factor=10)
-M = LinearOperator(car_model.Q_posterior.shape, ilu.solve)
+    print("Solving with preconditioned CG...")
+    start = time.time()
+    theta_map, info = cg(car_model.Q_posterior, car_model.b_posterior,
+                         x0=car_model.mu_prior,
+                         M=M,  # Preconditioner
+                         maxiter=500)
+    print(f"Preconditioned CG took {time.time()-start:.1f}s, converged: {info==0}")
+    """
 
-print("Solving with preconditioned CG...")
-start = time.time()
-theta_map, info = cg(car_model.Q_posterior, car_model.b_posterior,
-                     x0=car_model.mu_prior,
-                     M=M,  # Preconditioner
-                     maxiter=500)
-print(f"Preconditioned CG took {time.time()-start:.1f}s, converged: {info==0}")
-"""
+    # Diagnostics for MAP solution
+    print("=== MAP Solution Diagnostics ===")
 
-# Diagnostics for MAP solution
-print("=== MAP Solution Diagnostics ===")
+    # 1. Check satellite constraint satisfaction
+    monthly_pred = car_model.A_satellite @ theta_map
+    residuals = monthly_pred - car_model.y_satellite
 
-# 1. Check satellite constraint satisfaction
-monthly_pred = car_model.A_satellite @ theta_map
-residuals = monthly_pred - car_model.y_satellite
+    print(f"\nSatellite Constraint Fit:")
+    print(f"  Mean absolute error:   {np.abs(residuals).mean():.2f}")
+    print(
+        f"  Mean relative error:   {np.abs(residuals / car_model.y_satellite).mean()*100:.1f}%"
+    )
+    print(f"  RMSE:                  {np.sqrt(np.mean(residuals**2)):.2f}")
+    print(f"  Max absolute residual: {np.abs(residuals).max():.2f}")
 
-print(f"\nSatellite Constraint Fit:")
-print(f"  Mean absolute error:   {np.abs(residuals).mean():.2f}")
-print(
-    f"  Mean relative error:   {np.abs(residuals / car_model.y_satellite).mean()*100:.1f}%"
-)
-print(f"  RMSE:                  {np.sqrt(np.mean(residuals**2)):.2f}")
-print(f"  Max absolute residual: {np.abs(residuals).max():.2f}")
+    # 2. Compare to prior
+    print(f"\nPrior vs MAP:")
+    print(
+        f"  Prior range:     [{car_model.mu_prior.min():.1f}, {car_model.mu_prior.max():.1f}]"
+    )
+    print(f"  MAP range:       [{theta_map.min():.1f}, {theta_map.max():.1f}]")
+    print(f"  Mean shift:      {(theta_map - car_model.mu_prior).mean():.1f}")
+    print(f"  Std of shifts:   {(theta_map - car_model.mu_prior).std():.1f}")
 
-# 2. Compare to prior
-print(f"\nPrior vs MAP:")
-print(
-    f"  Prior range:     [{car_model.mu_prior.min():.1f}, {car_model.mu_prior.max():.1f}]"
-)
-print(f"  MAP range:       [{theta_map.min():.1f}, {theta_map.max():.1f}]")
-print(f"  Mean shift:      {(theta_map - car_model.mu_prior).mean():.1f}")
-print(f"  Std of shifts:   {(theta_map - car_model.mu_prior).std():.1f}")
+    # 3. Check for unrealistic values
+    print(f"\nRealism checks:")
+    print(f"  Negative values: {np.sum(theta_map < 0)} / {len(theta_map)}")
+    print(f"  Extreme values (>500): {np.sum(theta_map > 500)} / {len(theta_map)}")
 
-# 3. Check for unrealistic values
-print(f"\nRealism checks:")
-print(f"  Negative values: {np.sum(theta_map < 0)} / {len(theta_map)}")
-print(f"  Extreme values (>500): {np.sum(theta_map > 500)} / {len(theta_map)}")
+    # 4. Look at a sample settlement
+    s = 0  # First settlement
+    theta_s = theta_map[s * car_model.n_hours : (s + 1) * car_model.n_hours]
+    print(f"\nExample: Settlement {s}")
+    print(f"  Hourly range: [{theta_s.min():.1f}, {theta_s.max():.1f}]")
+    print(f"  Mean: {theta_s.mean():.1f}")
 
-# 4. Look at a sample settlement
-s = 0  # First settlement
-theta_s = theta_map[s * car_model.n_hours : (s + 1) * car_model.n_hours]
-print(f"\nExample: Settlement {s}")
-print(f"  Hourly range: [{theta_s.min():.1f}, {theta_s.max():.1f}]")
-print(f"  Mean: {theta_s.mean():.1f}")
+    # Store
+    car_model.theta_map = theta_map
 
-# Store
-car_model.theta_map = theta_map
-
-from scipy.sparse.linalg import cg
-import itertools
+    from scipy.sparse.linalg import cg
+    import itertools
 
 
 def evaluate_hyperparameters(

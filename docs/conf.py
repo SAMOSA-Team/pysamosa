@@ -12,8 +12,8 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",
 ]
-source_suffix = [".rst", ".md"]
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+source_suffix = {".rst": "restructuredtext", ".md": "myst"}
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "source"]
 
 html_theme = "furo"
 html_title = "pysamosa"
